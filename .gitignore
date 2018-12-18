@@ -1,0 +1,6 @@
+## Go ##
+grace-circleci-builder
+grace-circleci-builder.exe
+vendor/
+.DS_Store
+*/.DS_Store

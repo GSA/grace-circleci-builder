@@ -1,0 +1,25 @@
+version: 2
+jobs:
+  test_go:
+    docker:
+      - image: circleci/golang:latest
+    working_directory: /go/src/github.com/GSA/grace-circleci-builder
+    steps:
+      - checkout
+      - run:
+          name: Install prerequisites
+          command: |
+            go get -u github.com/golang/dep/cmd/dep
+            go get -u github.com/alecthomas/gometalinter
+            gometalinter --install
+      - run:
+          name: Run tests
+          command: |
+            make test_go
+
+workflows:
+  version: 2
+
+  test:
+    jobs:
+      - test_go
