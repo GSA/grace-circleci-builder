@@ -1,8 +1,8 @@
-# GRACE Terraform Test [![CircleCI](https://circleci.com/gh/GSA/grace-tftest.svg?style=svg)](https://circleci.com/gh/GSA/grace-tftest)
+# GRACE CircleCI Builder [![CircleCI](https://circleci.com/gh/GSA/grace-circleci-builder.svg?style=svg)](https://circleci.com/gh/GSA/grace-circleci-builder)
 
-## GRACE CircleCI Builder
+## Use Case
 
-Designed to execute against the CircleCI API v1.1, this tool reads from a local json formatted file, an array of repository definitions (similar to a Puppetfile). Then authenticates to CircleCI using the token provided in the environment variable `CIRCLECI_TOKEN`, then executes and waits for a new [project build](https://circleci.com/docs/api/v1-reference/#new-project-build) for each definition in the file.
+GRACE CircleCI Builder is a command-line tool that is designed to execute against the CircleCI API v1.1, this tool reads from a local json formatted file, an array of repository definitions (similar to a Puppetfile). Then authenticates to CircleCI using the token provided in the environment variable `CIRCLECI_TOKEN`, then executes and waits for a new [project build](https://circleci.com/docs/api/v1-reference/#new-project-build) for each definition in the file.
 
 Each definition is limited to the following properties:
 
