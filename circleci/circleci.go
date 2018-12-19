@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+const (
+	lifecycleFinished = "finished"
+	jobSuccess        = "success"
+)
+
 // isolates the request func for hooking up tests
 type requestFunc func(*Client, string, string, url.Values, interface{}, interface{}) error
 
@@ -307,7 +312,7 @@ func (c *Client) waitForNextBuild(project *Project, logger io.Writer, input *Bui
 		for _, s := range summaries {
 			if input.matchSummary(s) &&
 				s.User.Username == me.Username &&
-				s.Lifecycle != "finished" &&
+				s.Lifecycle != lifecycleFinished &&
 				s.Workflow != nil &&
 				s.Workflow.WorkflowID == workflowID {
 				summary = s
@@ -352,7 +357,7 @@ func (c *Client) waitForBuild(project *Project, logger io.Writer, buildNum int, 
 		}
 		// Lifecycle options:
 		//:queued, :scheduled, :not_run, :not_running, :running or :finished
-		if build.Lifecycle == "finished" {
+		if build.Lifecycle == lifecycleFinished {
 			return build, nil
 		}
 		count++
@@ -453,7 +458,7 @@ func (c *Client) FindBuildSummaries(project *Project, input *BuildProjectInput) 
 		for _, result := range results {
 			if input.matchSummary(result) &&
 				result.Reponame == project.Reponame &&
-				result.Lifecycle == "finished" &&
+				result.Lifecycle == lifecycleFinished &&
 				result.User.Username == me.Username {
 				// push this into output for further filtering based on status
 				// and workflowID
@@ -468,6 +473,7 @@ func (c *Client) FindBuildSummaries(project *Project, input *BuildProjectInput) 
 // the workflow status per workflow ID seen in the slice, then filters based on the
 // final status of the workflow execution, returns a new slice containing the filtered
 // objects
+// nolint: gocyclo
 func FilterBuildSummariesByWorkflowStatus(input []*BuildSummaryOutput, status string) (output []*BuildSummaryOutput) {
 	workflows := make(map[string]string)
 	for _, b := range input {
@@ -483,7 +489,7 @@ func FilterBuildSummariesByWorkflowStatus(input []*BuildSummaryOutput, status st
 			continue
 		}
 		// only update the status if it is not success
-		if b.Status != currentStatus && b.Status != "success" {
+		if b.Status != currentStatus && b.Status != jobSuccess {
 			workflows[b.Workflow.WorkflowID] = b.Status
 		}
 	}

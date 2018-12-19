@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -44,14 +45,15 @@ func main() {
 		log.Fatal("CIRCLECI_TOKEN environment variable must contain the access key to authenticate to circleci.com")
 	}
 	buildFilePtr := flag.String("file", "Buildfile", "provides the location of the JSON formatted build file to process")
-	jobTimeout := flag.Int("jobtimeout", 20, "specifies the number of minutes that a build job can take before timing out")
+	jobTimeoutPtr := flag.Int("jobtimeout", 20, "specifies the number of minutes that a build job can take before timing out")
 	skipDaysPtr := flag.Int("skipdays", 30, "specifies the number of days to consider a previous build relevant for skipping")
 	noSkipPtr := flag.Bool("noskip", false, "prevents skipping of previously built entries")
 	flag.Parse()
+
 	if len(*buildFilePtr) == 0 {
 		flag.Usage()
 	}
-	if *jobTimeout < 0 {
+	if *jobTimeoutPtr < 0 {
 		log.Fatal("jobtimeout must be greater than zero")
 	}
 
@@ -60,8 +62,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	err = runBuilds(token, *jobTimeoutPtr, *skipDaysPtr, *noSkipPtr, entries)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries []*entry) error {
 	// loop over circleci project entries, resolving each project
-	// and executing a full build, if anything fails, exit
+	// and executing a full build, if anything fails, return
 	for _, entry := range entries {
 		client := circleci.NewClient(nil, token)
 		log.Printf("Searching for project with url: %s\n", entry.URL)
@@ -69,33 +78,33 @@ func main() {
 			return p.VcsURL == entry.URL
 		})
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		input := &circleci.BuildProjectInput{
 			Branch:   entry.Branch,
 			Revision: entry.Commit,
 			Tag:      entry.Tag,
 		}
-		if *noSkipPtr == false {
-			log.Printf("Searching for builds in project %q, matching %s within %d to skip\n", project.Reponame, input, *skipDaysPtr)
-			skip, err := shouldSkip(client, project, input, *skipDaysPtr)
+		if !noSkip {
+			var skip bool
+			log.Printf("Searching for builds in project %q, matching %s within %d days to skip\n", project.Reponame, input, skipDays)
+			skip, err = shouldSkip(client, project, input, skipDays)
 			if err != nil {
-				log.Fatalf("failed to query information about previous project builds for project %s -> %v", project.Reponame, err)
+				return fmt.Errorf("failed to query information about previous project builds for project %s -> %v", project.Reponame, err)
 			}
 			if skip {
-				log.Printf("Skipping project %q, a previous build was found within %d days for %s\n", project.Reponame, *skipDaysPtr, input)
+				log.Printf("Skipping project %q, a previous build was found within %d days for %s\n", project.Reponame, skipDays, input)
 				continue
 			}
-			// remove when debugged
-			continue
 		}
 		log.Printf("Building project %q\n", project.Reponame)
-		err = entry.Build(client, os.Stdout, project, input, *jobTimeout)
+		err = entry.Build(client, os.Stdout, project, input, jobTimeout)
 		if err != nil {
-			log.Fatalf("failed to build project: %s -> %v", project.Reponame, err)
+			return fmt.Errorf("failed to build project: %s -> %v", project.Reponame, err)
 		}
 		log.Printf("Building project %q, completed successfully\n", project.Reponame)
 	}
+	return nil
 }
 
 func shouldSkip(client *circleci.Client, project *circleci.Project, input *circleci.BuildProjectInput, skipDays int) (bool, error) {
@@ -125,7 +134,7 @@ func shouldSkip(client *circleci.Client, project *circleci.Project, input *circl
 			return true, nil
 		}
 		skipCutoff := time.Now().Add(time.Duration((skipDays*24)*-1) * time.Hour)
-		return skipCutoff.After(*lastSuccess), nil
+		return lastSuccess.After(skipCutoff), nil
 	}
 	return false, nil
 }
