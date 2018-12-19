@@ -33,8 +33,32 @@ Each definition is limited to the following properties:
 The above would execute a project build for the following two projects:
 
 `grace-circleci-builder (master at d8cbe5)`
+
 `grace-tftest (v0.1)`
 
+
+### Command-line Flags Supported
+
+|flag|type|default|description|
+| --- | --- | --- | --- |
+|help|||prints usage information for the available flags|
+|file|string|Buildfile|provides the path to the JSON formatted build file|
+|jobtimeout|int|20|specifies the number of minutes that a build job can take before timing out|
+|skipdays|int|30|specifies the number of days to consider a previous build relevant for skipping|
+|noskip|bool|false|prevents skipping of previously built entries|
+
+### Example usage
+
+```cpp
+	// using /tmp/buildfile build all projects disabling the skipping mechanism
+	grace-circleci-builder -file /tmp/buildfile -noskip
+
+	/*
+		using ./Buildfile, rebuild projects that haven't been successfully built in the last 90 days
+		and allow jobs to take up to 30 minutes to complete before failing
+	*/
+	grace-circleci-builder -skipdays 90 -jobtimeout 30
+```
 
 ## Usage instructions
 

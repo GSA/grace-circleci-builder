@@ -122,6 +122,11 @@ func (bpi *BuildProjectInput) matchSummary(summary *BuildSummaryOutput) bool {
 	return true
 }
 
+// String ... returns the string formatted version of a BuildProjectInput
+func (bpi *BuildProjectInput) String() string {
+	return fmt.Sprintf("[Branch: %q, Revision: %q, Tag: %q]", bpi.Branch, bpi.Revision, bpi.Tag)
+}
+
 // buildProjectOutput ... represents the JSON structure returned from
 // a call to new project build:
 // https://circleci.com/docs/api/v1-reference/#new-project-build
@@ -247,6 +252,8 @@ func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, af
 
 // WaitForProjectBuild ... waits for all build jobs within the given project
 // to complete, if a build job fails, will return an error immediately
+// waitTimeout is the time to wait for the next build, before giving up
+// jobTimeout is the duration to wait for the build to complete, before giving up
 func (c *Client) WaitForProjectBuild(project *Project, logger io.Writer, input *BuildProjectInput, summary *BuildSummaryOutput, jobTimeout time.Duration, waitTimeout time.Duration) error {
 	buildNum := summary.BuildNum
 	for {
@@ -275,7 +282,7 @@ func (c *Client) WaitForProjectBuild(project *Project, logger io.Writer, input *
 }
 
 // waitForNextBuild ... used internally to wait for the next build job within a given project
-// and matches the provided workflowID
+// and matches the provided workflowID, waitTimeout is the duration to wait before giving up
 // nolint: gocyclo
 func (c *Client) waitForNextBuild(project *Project, logger io.Writer, input *BuildProjectInput, workflowID string, waitTimeout time.Duration) (*BuildSummaryOutput, error) {
 	var summary *BuildSummaryOutput
@@ -317,6 +324,7 @@ func (c *Client) waitForNextBuild(project *Project, logger io.Writer, input *Bui
 
 // waitForBuild ... used internally to wait for the build matching the given
 // buildNum to complete, does not validate that the build was successful
+// jobTimeout is the duration to wait before giving up
 func (c *Client) waitForBuild(project *Project, logger io.Writer, buildNum int, jobTimeout time.Duration) (*Build, error) {
 	var (
 		count   int
@@ -421,6 +429,80 @@ func (c *Client) BuildSummary(project *Project, input *BuildSummaryInput) ([]*Bu
 		return nil, err
 	}
 	return output, nil
+}
+
+// FindBuildSummaries ... returns all build summaries matching in the project and
+// the details in the build project input, that were initiated by the current user
+func (c *Client) FindBuildSummaries(project *Project, input *BuildProjectInput) ([]*BuildSummaryOutput, error) {
+	var (
+		selector BuildSummaryInput
+		output   []*BuildSummaryOutput
+	)
+	me, err := c.Me()
+	if err != nil {
+		return nil, err
+	}
+	selector.Limit = 100
+	for resultNum := selector.Limit; resultNum == selector.Limit; selector.Offset += selector.Limit {
+		results, err := c.BuildSummary(project, &selector)
+		if err != nil {
+			return nil, err
+		}
+		resultNum = len(results)
+		// collect all matching jobs, regardless of status
+		for _, result := range results {
+			if input.matchSummary(result) &&
+				result.Reponame == project.Reponame &&
+				result.Lifecycle == "finished" &&
+				result.User.Username == me.Username {
+				// push this into output for further filtering based on status
+				// and workflowID
+				output = append(output, result)
+			}
+		}
+	}
+	return output, nil
+}
+
+// FilterBuildSummariesByWorkflowStatus ... takes a slice of build summaries, collects
+// the workflow status per workflow ID seen in the slice, then filters based on the
+// final status of the workflow execution, returns a new slice containing the filtered
+// objects
+func FilterBuildSummariesByWorkflowStatus(input []*BuildSummaryOutput, status string) (output []*BuildSummaryOutput) {
+	workflows := make(map[string]string)
+	for _, b := range input {
+		var (
+			currentStatus string
+			ok            bool
+		)
+		if b.Workflow == nil {
+			continue
+		}
+		if currentStatus, ok = workflows[b.Workflow.WorkflowID]; !ok {
+			workflows[b.Workflow.WorkflowID] = b.Status
+			continue
+		}
+		// only update the status if it is not success
+		if b.Status != currentStatus && b.Status != "success" {
+			workflows[b.Workflow.WorkflowID] = b.Status
+		}
+	}
+	for i, s := range workflows {
+		if s != status {
+			continue
+		}
+		//push all summaries matching this workflowId
+		//onto the output slice
+		for _, b := range input {
+			if b.Workflow == nil {
+				continue
+			}
+			if b.Workflow.WorkflowID == i {
+				output = append(output, b)
+			}
+		}
+	}
+	return
 }
 
 // Project ... a genericized form of the response from calling
