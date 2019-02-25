@@ -73,6 +73,16 @@ func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries 
 	// and executing a full build, if anything fails, return
 	for _, entry := range entries {
 		client := circleci.NewClient(nil, token)
+		p, err := circleci.ProjectFromURL(entry.URL)
+		if err != nil {
+			return err
+		}
+		log.Printf("Following project with url: %s\n", entry.URL)
+		err = client.FollowProject(p)
+		if err != nil {
+			return fmt.Errorf("failed to follow project with URL: %s -> %v", entry.URL, err)
+		}
+
 		log.Printf("Searching for project with url: %s\n", entry.URL)
 		project, err := client.FindProject(func(p *circleci.Project) bool {
 			return p.VcsURL == entry.URL

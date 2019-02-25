@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -85,7 +86,7 @@ func request(c *Client, method string, path string, params url.Values, input int
 	}()
 
 	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		return fmt.Errorf("Non-success status code returned %s", resp.Status)
+		return fmt.Errorf("non-success status code returned %s", resp.Status)
 	}
 
 	err = json.NewDecoder(resp.Body).Decode(output)
@@ -521,6 +522,29 @@ type Project struct {
 	VcsURL   string `json:"vcs_url"`
 }
 
+// ProjectFromURL ... takes a code repository path and converts it
+// to a Project object - only tested on github paths
+func ProjectFromURL(rawurl string) (*Project, error) {
+	u, err := url.Parse(rawurl)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URL: %s -> %v", rawurl, err)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("path not propertly formatted: %s", u)
+	}
+	vcs := strings.Split(u.Host, ".")
+	if len(vcs) < 2 {
+		return nil, fmt.Errorf("host not properly formatted: %s", u)
+	}
+	return &Project{
+		Username: parts[0],
+		Reponame: parts[1],
+		Vcs:      vcs[0],
+		VcsURL:   u.String(),
+	}, nil
+}
+
 // Projects ... requests all projects visible to the current user
 // https://circleci.com/docs/api/v1-reference/#projects
 func (c *Client) Projects() ([]*Project, error) {
@@ -530,6 +554,49 @@ func (c *Client) Projects() ([]*Project, error) {
 		return nil, err
 	}
 	return projects, nil
+}
+
+type followResponse struct {
+	Following bool `json:"following"`
+}
+
+// FollowProject ... attempts to follow a project that isn't visible
+// to the current user
+// https://circleci.com/docs/api/v1-reference/#follow-project
+func (c *Client) FollowProject(project *Project) error {
+	var resp followResponse
+	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
+	if err != nil {
+		return err
+	}
+	if !resp.Following {
+		return fmt.Errorf("attempted to follow %s, following property still false", project.VcsURL)
+	}
+	return nil
+}
+
+// UnfollowProject ... attempts to unfollow a project that isn't visible
+// to the current user
+// https://circleci.com/docs/api/v1-reference/#follow-project
+func (c *Client) UnfollowProject(project *Project) error {
+	var resp followResponse
+	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
+	if err != nil {
+		return err
+	}
+	if resp.Following {
+		return fmt.Errorf("attempted to unfollow %s, following property still true", project.VcsURL)
+	}
+	return nil
+}
+
+// ProjectNotFoundError ... a project was not found when calling FindProject
+type ProjectNotFoundError struct {
+	Message string
+}
+
+func (p *ProjectNotFoundError) Error() string {
+	return p.Message
 }
 
 // FindProject ... requests all projects visible to the current user
@@ -545,7 +612,7 @@ func (c *Client) FindProject(matcher func(*Project) bool) (*Project, error) {
 			return p, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to locate a project using the given matcher")
+	return nil, &ProjectNotFoundError{Message: "failed to locate a project using the given matcher"}
 }
 
 // Me ... returns the current user
