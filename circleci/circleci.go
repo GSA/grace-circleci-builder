@@ -86,7 +86,7 @@ func request(c *Client, method string, path string, params url.Values, input int
 	}()
 
 	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		return fmt.Errorf("Non-success status code returned %s", resp.Status)
+		return fmt.Errorf("non-success status code returned %s", resp.Status)
 	}
 
 	err = json.NewDecoder(resp.Body).Decode(output)
@@ -531,11 +531,11 @@ func ProjectFromURL(rawurl string) (*Project, error) {
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) < 2 {
-		return nil, fmt.Errorf("Path not propertly formatted: %s", u)
+		return nil, fmt.Errorf("path not propertly formatted: %s", u)
 	}
 	vcs := strings.Split(u.Host, ".")
 	if len(vcs) < 2 {
-		return nil, fmt.Errorf("Host not properly formatted: %s", u)
+		return nil, fmt.Errorf("host not properly formatted: %s", u)
 	}
 	return &Project{
 		Username: parts[0],
