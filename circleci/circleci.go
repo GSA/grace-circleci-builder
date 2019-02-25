@@ -565,7 +565,7 @@ type followResponse struct {
 // https://circleci.com/docs/api/v1-reference/#follow-project
 func (c *Client) FollowProject(project *Project) error {
 	var resp followResponse
-	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
+	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s/follow", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
 	if err != nil {
 		return err
 	}
@@ -580,7 +580,7 @@ func (c *Client) FollowProject(project *Project) error {
 // https://circleci.com/docs/api/v1-reference/#follow-project
 func (c *Client) UnfollowProject(project *Project) error {
 	var resp followResponse
-	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
+	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s/unfollow", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
 	if err != nil {
 		return err
 	}
