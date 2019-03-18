@@ -239,7 +239,10 @@ func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, af
 	if err != nil {
 		return nil, err
 	}
-	me, err := c.Me()
+	// don't store response but leave call to c.Me() for
+	// restoration later after CircleCI restores the username
+	// property inside the build summary response
+	_, err = c.Me()
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +251,7 @@ func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, af
 			continue
 		}
 		if input.matchSummary(summary) &&
-			summary.User.Username == me.Username &&
+			//summary.User.Username == me.Username &&
 			summary.QueuedAt.Sub(after) > 0 {
 			return summary, nil
 		}
@@ -565,7 +568,7 @@ type followResponse struct {
 // https://circleci.com/docs/api/v1-reference/#follow-project
 func (c *Client) FollowProject(project *Project) error {
 	var resp followResponse
-	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
+	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s/follow", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
 	if err != nil {
 		return err
 	}
@@ -580,7 +583,7 @@ func (c *Client) FollowProject(project *Project) error {
 // https://circleci.com/docs/api/v1-reference/#follow-project
 func (c *Client) UnfollowProject(project *Project) error {
 	var resp followResponse
-	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
+	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s/unfollow", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
 	if err != nil {
 		return err
 	}
