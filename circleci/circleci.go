@@ -239,7 +239,10 @@ func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, af
 	if err != nil {
 		return nil, err
 	}
-	me, err := c.Me()
+	// don't store response but leave call to c.Me() for
+	// restoration later after CircleCI restores the username
+	// property inside the build summary response
+	_, err = c.Me()
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +251,7 @@ func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, af
 			continue
 		}
 		if input.matchSummary(summary) &&
-			summary.User.Username == me.Username &&
+			//summary.User.Username == me.Username &&
 			summary.QueuedAt.Sub(after) > 0 {
 			return summary, nil
 		}
