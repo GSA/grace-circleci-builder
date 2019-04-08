@@ -13,6 +13,7 @@ Each definition is limited to the following properties:
 |branch|string|false|version control system branch to build in repository|
 |tag|string|false|version control system tag to build (cannot be used with branch or commit)|
 |commit|string|false|version control system commit to build (full commit hash)|
+|continue_on_fail|bool|false|continues with build process if a repository is flagged as continue_on_fail=true and fails to build|
 
 ### Example JSON
 
@@ -21,7 +22,8 @@ Each definition is limited to the following properties:
 	"name":"grace-circleci-builder",
 	"repository":"https://github.com/GSA/grace-circleci-builder",
 	"branch":"master",
-	"commit":"d8cbe5e2df067ba5a7eba66376911b064b48a4bf"
+	"commit":"d8cbe5e2df067ba5a7eba66376911b064b48a4bf",
+	"continue_on_fail": true
 },
 {
 	"name":"grace-tftest",
@@ -35,6 +37,8 @@ The above would execute a project build for the following two projects:
 `grace-circleci-builder (master at d8cbe5)`
 
 `grace-tftest (v0.1)`
+
+If the build for `grace-circleci-builder` failed, the builder would continue to `grace-tftest`.
 
 
 ### Command-line Flags Supported

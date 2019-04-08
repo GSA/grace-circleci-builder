@@ -25,6 +25,8 @@ type entry struct {
 	Tag string `json:"tag"`
 	//version control system commit to build
 	Commit string `json:"commit"`
+	//skip on failure
+	ContinueOnFail bool `json:"continue_on_fail"`
 }
 
 func (e *entry) Build(client *circleci.Client, logger io.Writer, project *circleci.Project, input *circleci.BuildProjectInput, jobTimeout int) error {
@@ -36,7 +38,7 @@ func (e *entry) Build(client *circleci.Client, logger io.Writer, project *circle
 	if err != nil {
 		return err
 	}
-	return client.WaitForProjectBuild(project, logger, input, summary, time.Duration(jobTimeout)*time.Minute, time.Minute)
+	return client.WaitForProjectBuild(project, logger, input, summary, time.Duration(jobTimeout)*time.Minute, time.Minute, e.ContinueOnFail)
 }
 
 func main() {
@@ -72,6 +74,10 @@ func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries 
 	// loop over circleci project entries, resolving each project
 	// and executing a full build, if anything fails, return
 	for _, entry := range entries {
+		if len(entry.URL) == 0 || len(entry.Name) == 0 {
+			log.Printf("skipping blank entry...\n")
+			continue
+		}
 		client := circleci.NewClient(nil, token)
 		p, err := circleci.ProjectFromURL(entry.URL)
 		if err != nil {
@@ -126,24 +132,33 @@ func shouldSkip(client *circleci.Client, project *circleci.Project, input *circl
 	}
 	filteredBuilds := circleci.FilterBuildSummariesByWorkflowStatus(rawBuilds, "success")
 	var lastSuccess *time.Time
+	// loop over all successful build summaries
 	for _, b := range filteredBuilds {
+		// if StoppedAt is not set, skip the summary
 		if b.StoppedAt == nil {
 			continue
 		}
+		// if this is the first summary that made it this far
+		// set lastSuccess to the stop_time of this summary
 		if lastSuccess == nil {
 			lastSuccess = b.StoppedAt
 			continue
 		}
+		// if this summary's stop_time is newer than the value
+		// stored in lastSuccess, update lastSuccess to this value
 		if b.StoppedAt.After(*lastSuccess) {
 			lastSuccess = b.StoppedAt
 		}
 	}
+	// if we found the stop_time of at least one successful job
 	if lastSuccess != nil {
 		// if it has ever been successful, skip it
 		if skipDays == -1 {
 			return true, nil
 		}
+		// set skipCutoff to the negative of skipDays in hours
 		skipCutoff := time.Now().Add(time.Duration((skipDays*24)*-1) * time.Hour)
+		// return true if lastSuccess is newer than skipCutoff
 		return lastSuccess.After(skipCutoff), nil
 	}
 	return false, nil
