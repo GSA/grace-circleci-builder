@@ -16,11 +16,38 @@ import (
 
 const (
 	lifecycleFinished = "finished"
-	jobSuccess        = "success"
 )
 
 // isolates the request func for hooking up tests
 type requestFunc func(*Client, string, string, url.Values, interface{}, interface{}) error
+
+// RequestError contains details about the failed HTTP request
+type RequestError struct {
+	Code    int
+	Message string
+}
+
+func (r RequestError) Error() string {
+	return r.Message
+}
+
+func retrier(intervalSecs int, attempts int, fn func() error) (err error) {
+	for attempt := 0; attempt < attempts; attempt++ {
+		err = fn()
+		if err == nil {
+			return
+		}
+		time.Sleep(time.Duration(intervalSecs) * time.Second)
+	}
+	return
+}
+
+func logf(logger io.Writer, format string, args ...interface{}) {
+	_, err := fmt.Fprintf(logger, format, args...)
+	if err != nil {
+		log.Printf(format, args...)
+	}
+}
 
 // Client ... contains necessary data to communicate with circleci
 type Client struct {
@@ -152,7 +179,14 @@ func (b buildProjectOutput) String() string {
 // for that build job
 func (c *Client) BuildProject(project *Project, logger io.Writer, input *BuildProjectInput, waitTimeout time.Duration) (*BuildSummaryOutput, error) {
 	var output buildProjectOutput
-	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s/build", project.Vcs, project.Username, project.Reponame), nil, input, &output)
+	err := retrier(30, 3, func() error {
+		url := fmt.Sprintf("project/%s/%s/%s/build", project.Vcs, project.Username, project.Reponame)
+		err := c.requester(c, "POST", url, nil, input, &output)
+		if err != nil {
+			logf(logger, "BuildProject failed, POST /%s -> %v", url, err)
+		}
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -169,12 +203,9 @@ func (c *Client) BuildProject(project *Project, logger io.Writer, input *BuildPr
 	var summary *BuildSummaryOutput
 	err = waiter(time.Second, time.Now().Add(waitTimeout), func(count int) (bool, error) {
 		if count%10 == 0 {
-			_, err = fmt.Fprintf(logger, "waiting for a build summary matching the project: %s\n", project.Reponame)
-			if err != nil {
-				return false, err
-			}
+			logf(logger, "waiting for a build summary matching the project: %s\n", project.Reponame)
 		}
-		summary, err = c.findBuildSummary(project, input, after)
+		summary, err = c.findBuildSummary(project, logger, input, after)
 		if err != nil {
 			if _, ok := err.(*summaryNotFoundError); ok {
 				return false, nil
@@ -234,15 +265,15 @@ func waiter(interval time.Duration, endTime time.Time, checker func(int) (bool, 
 
 // findBuildSummary ... used internally to locate a BuildSummary that was executed
 // by the current user and was queued after the provided 'after' time.Time
-func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, after time.Time) (*BuildSummaryOutput, error) {
-	summaries, err := c.BuildSummary(project, nil)
+func (c *Client) findBuildSummary(project *Project, logger io.Writer, input *BuildProjectInput, after time.Time) (*BuildSummaryOutput, error) {
+	summaries, err := c.BuildSummary(project, logger, nil)
 	if err != nil {
 		return nil, err
 	}
 	// don't store response but leave call to c.Me() for
 	// restoration later after CircleCI restores the username
 	// property inside the build summary response
-	_, err = c.Me()
+	me, err := c.Me(logger)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +282,7 @@ func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, af
 			continue
 		}
 		if input.matchSummary(summary) &&
-			//summary.User.Username == me.Username &&
+			summary.User.Username == me.Username &&
 			summary.QueuedAt.Sub(after) > 0 {
 			return summary, nil
 		}
@@ -263,7 +294,7 @@ func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, af
 // to complete, if a build job fails, will return an error immediately
 // waitTimeout is the time to wait for the next build, before giving up
 // jobTimeout is the duration to wait for the build to complete, before giving up
-func (c *Client) WaitForProjectBuild(project *Project, logger io.Writer, input *BuildProjectInput, summary *BuildSummaryOutput, jobTimeout time.Duration, waitTimeout time.Duration) error {
+func (c *Client) WaitForProjectBuild(project *Project, logger io.Writer, input *BuildProjectInput, summary *BuildSummaryOutput, jobTimeout time.Duration, waitTimeout time.Duration, continueOnFail bool) error {
 	buildNum := summary.BuildNum
 	for {
 		build, err := c.waitForBuild(project, logger, buildNum, jobTimeout)
@@ -271,6 +302,10 @@ func (c *Client) WaitForProjectBuild(project *Project, logger io.Writer, input *
 			return err
 		}
 		if *build.Failed {
+			if continueOnFail {
+				logf(logger, "build %s [%d] failed, continue on failure is enabled for this project\n", project.Reponame, buildNum)
+				return nil
+			}
 			return fmt.Errorf("build %s [%d] failed", project.Reponame, buildNum)
 		}
 		if build.Workflow == nil {
@@ -295,19 +330,16 @@ func (c *Client) WaitForProjectBuild(project *Project, logger io.Writer, input *
 // nolint: gocyclo
 func (c *Client) waitForNextBuild(project *Project, logger io.Writer, input *BuildProjectInput, workflowID string, waitTimeout time.Duration) (*BuildSummaryOutput, error) {
 	var summary *BuildSummaryOutput
-	me, err := c.Me()
+	me, err := c.Me(logger)
 	if err != nil {
 		return nil, err
 	}
 	err = waiter(time.Second, time.Now().Add(waitTimeout), func(count int) (bool, error) {
 		if count%10 == 0 {
-			_, err = fmt.Fprintf(logger, "waiting for the next build summary matching the project: %s and workflowId: %s\n", project.Reponame, workflowID)
-			if err != nil {
-				log.Printf("failed to write to logger: %v\n", err)
-			}
+			logf(logger, "waiting for the next build summary matching the project: %s and workflowId: %s\n", project.Reponame, workflowID)
 		}
 		var summaries []*BuildSummaryOutput
-		summaries, err = c.BuildSummary(project, nil)
+		summaries, err = c.BuildSummary(project, logger, nil)
 		if err != nil {
 			// should this be returned to the caller, logging for now - BLA
 			log.Printf("failed to enumerate build summaries: %v\n", err)
@@ -344,19 +376,13 @@ func (c *Client) waitForBuild(project *Project, logger io.Writer, buildNum int, 
 			return nil, fmt.Errorf("job timeout exceeded while waiting for build %s [%d] to finish", project.Reponame, buildNum)
 		}
 		if count%10 == 0 {
-			_, err := fmt.Fprintf(logger, "waiting for build %s [%d] to finish\n", project.Reponame, buildNum)
-			if err != nil {
-				log.Printf("failed to write to logger -> %v\n", err)
-			}
+			logf(logger, "waiting for build %s [%d] to finish\n", project.Reponame, buildNum)
 		}
 		time.Sleep(2 * time.Second)
-		build, err := c.GetBuild(project, buildNum)
+		build, err := c.GetBuild(project, logger, buildNum)
 		if err != nil {
 			//should we return this error? logging for now - BLA
-			_, err = fmt.Fprintf(logger, "failed to get build %s [%d] -> %v\n", project.Reponame, buildNum, err)
-			if err != nil {
-				log.Printf("failed to write to logger -> %v\n", err)
-			}
+			logf(logger, "failed to get build %s [%d] -> %v\n", project.Reponame, buildNum, err)
 			continue
 		}
 		// Lifecycle options:
@@ -419,7 +445,7 @@ type BuildSummaryOutput struct {
 // BuildSummary ... requests build summaries for all recent builds
 // in the given project
 // https://circleci.com/docs/api/v1-reference/#recent-builds-project
-func (c *Client) BuildSummary(project *Project, input *BuildSummaryInput) ([]*BuildSummaryOutput, error) {
+func (c *Client) BuildSummary(project *Project, logger io.Writer, input *BuildSummaryInput) ([]*BuildSummaryOutput, error) {
 	params := url.Values{}
 	if input != nil {
 		if input.Limit > 0 {
@@ -433,7 +459,14 @@ func (c *Client) BuildSummary(project *Project, input *BuildSummaryInput) ([]*Bu
 		}
 	}
 	var output []*BuildSummaryOutput
-	err := c.requester(c, "GET", fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame), params, input, &output)
+	err := retrier(30, 3, func() error {
+		url := fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame)
+		err := c.requester(c, "GET", url, params, input, &output)
+		if err != nil {
+			logf(logger, "BuildSummary failed, GET /%s -> %v", url, err)
+		}
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -442,18 +475,19 @@ func (c *Client) BuildSummary(project *Project, input *BuildSummaryInput) ([]*Bu
 
 // FindBuildSummaries ... returns all build summaries matching in the project and
 // the details in the build project input, that were initiated by the current user
-func (c *Client) FindBuildSummaries(project *Project, input *BuildProjectInput) ([]*BuildSummaryOutput, error) {
+func (c *Client) FindBuildSummaries(project *Project, logger io.Writer, input *BuildProjectInput) ([]*BuildSummaryOutput, error) {
 	var (
 		selector BuildSummaryInput
 		output   []*BuildSummaryOutput
 	)
-	me, err := c.Me()
+	me, err := c.Me(logger)
 	if err != nil {
 		return nil, err
 	}
 	selector.Limit = 100
+	// while we receive 100 records in response, continue polling for more records
 	for resultNum := selector.Limit; resultNum == selector.Limit; selector.Offset += selector.Limit {
-		results, err := c.BuildSummary(project, &selector)
+		results, err := c.BuildSummary(project, logger, &selector)
 		if err != nil {
 			return nil, err
 		}
@@ -485,24 +519,27 @@ func FilterBuildSummariesByWorkflowStatus(input []*BuildSummaryOutput, status st
 			currentStatus string
 			ok            bool
 		)
+		// skip this summary if the workflow object has not been populated
 		if b.Workflow == nil {
 			continue
 		}
+		// if this workflowID has not been seen before, store the status and continue
 		if currentStatus, ok = workflows[b.Workflow.WorkflowID]; !ok {
 			workflows[b.Workflow.WorkflowID] = b.Status
 			continue
 		}
-		// only update the status if it is not success
-		if b.Status != currentStatus && b.Status != jobSuccess {
+		// only update the status for WorkflowID, if it is not equal to 'status'
+		if b.Status != currentStatus && b.Status != status {
 			workflows[b.Workflow.WorkflowID] = b.Status
 		}
 	}
 	for i, s := range workflows {
+		// skip workflows that do not match the provided status
 		if s != status {
 			continue
 		}
-		//push all summaries matching this workflowId
-		//onto the output slice
+		// push all summaries matching this workflowId
+		// onto the output slice
 		for _, b := range input {
 			if b.Workflow == nil {
 				continue
@@ -550,9 +587,15 @@ func ProjectFromURL(rawurl string) (*Project, error) {
 
 // Projects ... requests all projects visible to the current user
 // https://circleci.com/docs/api/v1-reference/#projects
-func (c *Client) Projects() ([]*Project, error) {
+func (c *Client) Projects(logger io.Writer) ([]*Project, error) {
 	var projects []*Project
-	err := c.requester(c, "GET", "projects", nil, nil, &projects)
+	err := retrier(30, 3, func() error {
+		err := c.requester(c, "GET", "projects", nil, nil, &projects)
+		if err != nil {
+			logf(logger, "Projects failed, GET /projects -> %v", err)
+		}
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -566,9 +609,16 @@ type followResponse struct {
 // FollowProject ... attempts to follow a project that isn't visible
 // to the current user
 // https://circleci.com/docs/api/v1-reference/#follow-project
-func (c *Client) FollowProject(project *Project) error {
+func (c *Client) FollowProject(project *Project, logger io.Writer) error {
 	var resp followResponse
-	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s/follow", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
+	err := retrier(30, 3, func() error {
+		url := fmt.Sprintf("project/%s/%s/%s/follow", project.Vcs, project.Username, project.Reponame)
+		err := c.requester(c, "POST", url, nil, nil, &resp)
+		if err != nil {
+			logf(logger, "FollowProject failed, POST /%s -> %v", url, err)
+		}
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -581,9 +631,16 @@ func (c *Client) FollowProject(project *Project) error {
 // UnfollowProject ... attempts to unfollow a project that isn't visible
 // to the current user
 // https://circleci.com/docs/api/v1-reference/#follow-project
-func (c *Client) UnfollowProject(project *Project) error {
+func (c *Client) UnfollowProject(project *Project, logger io.Writer) error {
 	var resp followResponse
-	err := c.requester(c, "POST", fmt.Sprintf("project/%s/%s/%s/unfollow", project.Vcs, project.Username, project.Reponame), nil, nil, &resp)
+	err := retrier(30, 3, func() error {
+		url := fmt.Sprintf("project/%s/%s/%s/unfollow", project.Vcs, project.Username, project.Reponame)
+		err := c.requester(c, "POST", url, nil, nil, &resp)
+		if err != nil {
+			logf(logger, "UnfollowProject failed, POST /%s -> %v", url, err)
+		}
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -605,8 +662,8 @@ func (p *ProjectNotFoundError) Error() string {
 // FindProject ... requests all projects visible to the current user
 // then calls the provided matcher on each project until the first match
 // is found or returns an error
-func (c *Client) FindProject(matcher func(*Project) bool) (*Project, error) {
-	projects, err := c.Projects()
+func (c *Client) FindProject(logger io.Writer, matcher func(*Project) bool) (*Project, error) {
+	projects, err := c.Projects(logger)
 	if err != nil {
 		return nil, err
 	}
@@ -620,28 +677,20 @@ func (c *Client) FindProject(matcher func(*Project) bool) (*Project, error) {
 
 // Me ... returns the current user
 // https://circleci.com/docs/api/v1-reference/#user
-func (c *Client) Me() (*User, error) {
+func (c *Client) Me(logger io.Writer) (*User, error) {
 	var me User
-	err := c.requester(c, "GET", "me", nil, nil, &me)
+	err := retrier(30, 3, func() error {
+		err := c.requester(c, "GET", "me", nil, nil, &me)
+		if err != nil {
+			logf(logger, "Me failed, GET /me -> %v", err)
+		}
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
 	return &me, nil
 }
-
-/*
-from the plurality of the variable name, you would think
-that CircleCI would return this as an array of one
-"workflows" : {
-    "job_name" : "apply_terraform",
-    "job_id" : "cebd33d5-e7d4-4375-8a57-7c484bda30cb",
-    "workflow_id" : "25a9035c-1a5a-49e0-9dd6-ad45ac3501b4",
-    "workspace_id" : "25a9035c-1a5a-49e0-9dd6-ad45ac3501b4",
-    "upstream_job_ids" : [ "5e236d14-7275-423c-bc56-605a5c9a966e", "7c7ffd93-c988-4c82-a4f5-b6a39e3bfdb9" ],
-    "upstream_concurrency_map" : { },
-    "workflow_name" : "test_and_apply"
-  }
-*/
 
 // BuildWorkflow ... partially represents the object returned
 // in the workflows property of a build or build summary
@@ -681,9 +730,16 @@ type Build struct {
 
 // GetBuild ... returns a *Build for the given buildNum, or an
 // error if the request to CircleCI failed
-func (c *Client) GetBuild(project *Project, buildNum int) (*Build, error) {
+func (c *Client) GetBuild(project *Project, logger io.Writer, buildNum int) (*Build, error) {
 	var build Build
-	err := c.requester(c, "GET", fmt.Sprintf("project/%s/%s/%s/%d", project.Vcs, project.Username, project.Reponame, buildNum), nil, nil, &build)
+	err := retrier(30, 3, func() error {
+		url := fmt.Sprintf("project/%s/%s/%s/%d", project.Vcs, project.Username, project.Reponame, buildNum)
+		err := c.requester(c, "GET", url, nil, nil, &build)
+		if err != nil {
+			logf(logger, "GetBuild failed, GET /%s -> %v", url, err)
+		}
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
