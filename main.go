@@ -84,13 +84,13 @@ func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries 
 			return err
 		}
 		log.Printf("Following project with url: %s\n", entry.URL)
-		err = client.FollowProject(p)
+		err = client.FollowProject(p, os.Stdout)
 		if err != nil {
 			return fmt.Errorf("failed to follow project with URL: %s -> %v", entry.URL, err)
 		}
 
 		log.Printf("Searching for project with url: %s\n", entry.URL)
-		project, err := client.FindProject(func(p *circleci.Project) bool {
+		project, err := client.FindProject(os.Stdout, func(p *circleci.Project) bool {
 			return p.VcsURL == entry.URL
 		})
 		if err != nil {
@@ -126,7 +126,7 @@ func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries 
 func shouldSkip(client *circleci.Client, project *circleci.Project, input *circleci.BuildProjectInput, skipDays int) (bool, error) {
 	// this may need to be optimized to accept an 'after' date
 	// so we can stop iterating over old/stale job data
-	rawBuilds, err := client.FindBuildSummaries(project, input)
+	rawBuilds, err := client.FindBuildSummaries(project, os.Stdout, input)
 	if err != nil {
 		return false, err
 	}

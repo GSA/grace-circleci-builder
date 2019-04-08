@@ -27,7 +27,7 @@ func TestFollow(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("Project: %v\n", p)
-	err = c.FollowProject(p)
+	err = c.FollowProject(p, os.Stdout)
 	if err != nil {
 		t.Fatal(err)
 	}
