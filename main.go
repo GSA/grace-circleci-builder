@@ -70,6 +70,7 @@ func main() {
 	}
 }
 
+//nolint: gocyclo
 func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries []*entry) error {
 	// loop over circleci project entries, resolving each project
 	// and executing a full build, if anything fails, return
