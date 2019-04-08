@@ -282,7 +282,7 @@ func (c *Client) findBuildSummary(project *Project, input *BuildProjectInput, af
 			continue
 		}
 		if input.matchSummary(summary) &&
-			//summary.User.Username == me.Username &&
+			summary.User.Username == me.Username &&
 			summary.QueuedAt.Sub(after) > 0 {
 			return summary, nil
 		}
