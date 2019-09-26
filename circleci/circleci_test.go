@@ -132,8 +132,8 @@ func TestBuildProject(t *testing.T) {
 		},
 	}
 	tt := make([]testCase, len(tf))
-	for _, tc := range tf {
-		tt = append(tt, tc())
+	for i, tc := range tf {
+		tt[i] = tc()
 	}
 	for _, tc := range tt {
 		t.Run(tc.title, tc.tester)
