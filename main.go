@@ -91,6 +91,7 @@ func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries 
 		}
 
 		log.Printf("Searching for project with url: %s\n", entry.URL)
+		entry := entry // pin!
 		project, err := client.FindProject(os.Stdout, func(p *circleci.Project) bool {
 			return p.VcsURL == entry.URL
 		})

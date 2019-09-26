@@ -41,6 +41,7 @@ type testCase struct {
 
 type testCaseCreator func() testCase
 
+//nolint:funlen
 func TestBuildProject(t *testing.T) {
 	c := &Client{}
 	t.Parallel()
@@ -48,7 +49,7 @@ func TestBuildProject(t *testing.T) {
 		func() testCase {
 			var tc testCase
 			tc.title = "BuildProject should fail if BuildProjectOutput.Status is not 200"
-			tc.requester = testBuildProjectRequest(t, 404, "", "", time.Now(), "", "", "")
+			tc.requester = testBuildProjectRequest(t, 404, "", "", "", "", "")
 			tc.tester = func(t *testing.T) {
 				c.requester = tc.requester
 				_, err := c.BuildProject(&Project{
@@ -69,7 +70,7 @@ func TestBuildProject(t *testing.T) {
 		func() testCase {
 			var tc testCase
 			tc.title = "BuildProject should fail if BuildProjectOutput.User.Username does not match Me.User.Username"
-			tc.requester = testBuildProjectRequest(t, 200, "self", "notSelf", time.Now(), "", "", "")
+			tc.requester = testBuildProjectRequest(t, 200, "self", "notSelf", "", "", "")
 			tc.tester = func(t *testing.T) {
 				c.requester = tc.requester
 				_, err := c.BuildProject(&Project{
@@ -90,7 +91,7 @@ func TestBuildProject(t *testing.T) {
 		func() testCase {
 			var tc testCase
 			tc.title = "BuildProject should fail if BuildProjectOutput.Revision does not match ProjectInput.Revision"
-			tc.requester = testBuildProjectRequest(t, 200, "self", "self", time.Now(), "", "1", "2")
+			tc.requester = testBuildProjectRequest(t, 200, "self", "self", "", "1", "2")
 			tc.tester = func(t *testing.T) {
 				c.requester = tc.requester
 				_, err := c.BuildProject(&Project{
@@ -111,7 +112,7 @@ func TestBuildProject(t *testing.T) {
 		func() testCase {
 			var tc testCase
 			tc.title = "BuildProject should fail if BuildProjectOutput.Branch does not match ProjectInput.Branch"
-			tc.requester = testBuildProjectRequest(t, 200, "self", "self", time.Now(), "", "1", "2")
+			tc.requester = testBuildProjectRequest(t, 200, "self", "self", "", "1", "2")
 			tc.tester = func(t *testing.T) {
 				c.requester = tc.requester
 				_, err := c.BuildProject(&Project{
@@ -130,7 +131,7 @@ func TestBuildProject(t *testing.T) {
 			return tc
 		},
 	}
-	var tt []testCase
+	tt := make([]testCase, len(tf))
 	for _, tc := range tf {
 		tt = append(tt, tc())
 	}
@@ -139,7 +140,8 @@ func TestBuildProject(t *testing.T) {
 	}
 }
 
-func testBuildProjectRequest(t *testing.T, bpoStatus int, meUser string, bsoUser string, bsoAfter time.Time, bsoTag string, bsoRevision string, bsoBranch string) requestFunc {
+//nolint:unparam
+func testBuildProjectRequest(t *testing.T, bpoStatus int, meUser string, bsoUser string, bsoTag string, bsoRevision string, bsoBranch string) requestFunc {
 	return func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
 		now := time.Now()
 		switch val := output.(type) {
