@@ -15,4 +15,4 @@ workflows:
 
   test:
     jobs:
-      - test_go
+      - test
