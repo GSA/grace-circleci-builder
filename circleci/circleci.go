@@ -31,6 +31,7 @@ func (r RequestError) Error() string {
 	return r.Message
 }
 
+//nolint:unparam
 func retrier(intervalSecs int, attempts int, fn func() error) (err error) {
 	for attempt := 0; attempt < attempts; attempt++ {
 		err = fn()
@@ -193,6 +194,7 @@ func (c *Client) BuildProject(project *Project, logger io.Writer, input *BuildPr
 	if output.Status != 200 {
 		return nil, fmt.Errorf("failed to start project build: %s", output)
 	}
+	//nolint:godox
 	// 12/14/2018 - BLA
 	// TODO: Fix this if CircleCI ever fixes their API
 	// CircleCI currently doesn't return the buildNum or anything valuable when
@@ -233,7 +235,7 @@ func (e *summaryNotFoundError) Error() string {
 }
 
 // timeoutExceededError ... used internally to signify
-// a timeout ocurred while calling waiter
+// a timeout occurred while calling waiter
 type timeoutExceededError struct {
 	Message string
 }
@@ -294,7 +296,14 @@ func (c *Client) findBuildSummary(project *Project, logger io.Writer, input *Bui
 // to complete, if a build job fails, will return an error immediately
 // waitTimeout is the time to wait for the next build, before giving up
 // jobTimeout is the duration to wait for the build to complete, before giving up
-func (c *Client) WaitForProjectBuild(project *Project, logger io.Writer, input *BuildProjectInput, summary *BuildSummaryOutput, jobTimeout time.Duration, waitTimeout time.Duration, continueOnFail bool) error {
+func (c *Client) WaitForProjectBuild(
+	project *Project,
+	logger io.Writer,
+	input *BuildProjectInput,
+	summary *BuildSummaryOutput,
+	jobTimeout time.Duration,
+	waitTimeout time.Duration,
+	continueOnFail bool) error {
 	buildNum := summary.BuildNum
 	for {
 		build, err := c.waitForBuild(project, logger, buildNum, jobTimeout)
@@ -549,7 +558,7 @@ func FilterBuildSummariesByWorkflowStatus(input []*BuildSummaryOutput, status st
 			}
 		}
 	}
-	return
+	return output
 }
 
 // Project ... a genericized form of the response from calling
@@ -571,7 +580,7 @@ func ProjectFromURL(rawurl string) (*Project, error) {
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) < 2 {
-		return nil, fmt.Errorf("path not propertly formatted: %s", u)
+		return nil, fmt.Errorf("path not properly formatted: %s", u)
 	}
 	vcs := strings.Split(u.Host, ".")
 	if len(vcs) < 2 {
