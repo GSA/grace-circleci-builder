@@ -2,9 +2,49 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"testing"
+	"time"
+
+	"github.com/GSA/grace-circleci-builder/circleci"
+	"github.com/GSA/grace-circleci-builder/circleci/circleciiface"
 )
+
+type mockClient struct {
+	circleciiface.CIRCLECIAPI
+	Project circleci.Project
+}
+
+func (m mockClient) FollowProject(p *circleci.Project, w io.Writer) error {
+	return nil
+}
+
+func (m mockClient) FindProject(w io.Writer, fn func(*circleci.Project) bool) (*circleci.Project, error) {
+	return &m.Project, nil
+}
+
+func (m mockClient) FindBuildSummaries(p *circleci.Project, w io.Writer, in *circleci.BuildProjectInput) ([]*circleci.BuildSummaryOutput, error) {
+	resp := []*circleci.BuildSummaryOutput{{
+		BuildNum: 42,
+		Username: m.Project.Username,
+		Reponame: m.Project.Reponame,
+	}}
+	return resp, nil
+}
+
+func (m mockClient) BuildProject(p *circleci.Project, w io.Writer, in *circleci.BuildProjectInput, _ time.Duration) (*circleci.BuildSummaryOutput, error) {
+	resp := &circleci.BuildSummaryOutput{
+		BuildNum: 42,
+		Username: m.Project.Username,
+		Reponame: m.Project.Reponame,
+	}
+	return resp, nil
+}
+
+func (m mockClient) WaitForProjectBuild(p *circleci.Project, w io.Writer, in *circleci.BuildProjectInput, o *circleci.BuildSummaryOutput, _ time.Duration, _ time.Duration, _ bool) error {
+	return nil
+}
 
 func TestParseEntries(t *testing.T) {
 	tests := []struct {
@@ -37,7 +77,7 @@ func TestParseEntries(t *testing.T) {
 			Err:  nil,
 			Expect: []*entry{{
 				Name:           "test1",
-				URL:            "https://github.com/test1",
+				URL:            "https://github.com/org/test1",
 				Branch:         "master",
 				Tag:            "",
 				Commit:         "test000001",
@@ -45,7 +85,7 @@ func TestParseEntries(t *testing.T) {
 			},
 				{
 					Name:           "test2",
-					URL:            "https://github.com/test2",
+					URL:            "https://github.com/org/test2",
 					Branch:         "master",
 					Tag:            "",
 					Commit:         "test000002",
@@ -65,5 +105,23 @@ func TestParseEntries(t *testing.T) {
 				t.Errorf("parseEntries() failed: expected %v (%T)\nGot: %v (%T)\n", tc.Expect, tc.Expect, got, got)
 			}
 		})
+	}
+}
+
+func TestRunBuilds(t *testing.T) {
+	client := mockClient{
+		Project: circleci.Project{
+			Username: "tester",
+			Reponame: "github.com/org/test1",
+			Vcs:      "test",
+			VcsURL:   "test",
+		}}
+	entries, err := parseEntries("test_data/test.json")
+	if err != nil {
+		t.Fatalf("RunBuilds() failed: %v", err)
+	}
+	err = runBuilds(client, 90, 1, false, entries)
+	if err != nil {
+		t.Fatalf("RunBuilds() failed: %v", err)
 	}
 }
