@@ -32,10 +32,24 @@ func TestParseEntries(t *testing.T) {
 			ExpectLength: 0,
 		},
 		{
-			Name:         "two entries",
-			File:         "test_data/test.json",
-			Err:          nil,
-			Expect:       []*entry{{Name: "test1"}, {Name: "test2"}},
+			Name: "two entries",
+			File: "test_data/test.json",
+			Err:  nil,
+			Expect: []*entry{{
+				Name:           "test1",
+				URL:            "https://github.com/test1",
+				Branch:         "master",
+				Tag:            "",
+				Commit:         "test000001",
+				ContinueOnFail: false,
+			},
+				{
+					Name:           "test2",
+					URL:            "https://github.com/test2",
+					Branch:         "master",
+					Tag:            "",
+					Commit:         "test000002",
+					ContinueOnFail: false}},
 			ExpectLength: 2,
 		}}
 	for _, st := range tests {

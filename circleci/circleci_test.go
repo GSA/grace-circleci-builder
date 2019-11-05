@@ -19,7 +19,7 @@ func TestNew(t *testing.T) {
 func TestFollow(t *testing.T) {
 	token := os.Getenv("CIRCLECI_TOKEN")
 	if len(token) == 0 {
-		t.Fatal("CIRCLECI_TOKEN environment variable must contain the access key to authenticate to circleci.com")
+		t.Skip("CIRCLECI_TOKEN environment variable must contain the access key to authenticate to circleci.com")
 	}
 	c := NewClient(nil, token)
 	p, err := ProjectFromURL("https://github.com/GSA/grace-build")

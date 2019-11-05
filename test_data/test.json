@@ -1,8 +1,14 @@
 [
   {
-    "Name": "test1"
+    "name": "test1",
+    "repository": "https://github.com/test1",
+    "branch": "master",
+    "commit": "test000001"
   },
   {
-    "Name": "test2"
+    "name": "test2",
+    "repository": "https://github.com/test2",
+    "branch": "master",
+    "commit": "test000002"
   }
 ]
