@@ -7,7 +7,7 @@ GOSEC := $(GOBIN)/gosec
 default: test
 
 test: lint
-	go test ./...
+	go test -v -cover ./...
 
 lint: dependencies
 	$(GODEP) ensure
