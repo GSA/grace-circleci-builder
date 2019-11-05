@@ -42,7 +42,14 @@ func (m mockClient) BuildProject(p *circleci.Project, w io.Writer, in *circleci.
 	return resp, nil
 }
 
-func (m mockClient) WaitForProjectBuild(p *circleci.Project, w io.Writer, in *circleci.BuildProjectInput, o *circleci.BuildSummaryOutput, _ time.Duration, _ time.Duration, _ bool) error {
+func (m mockClient) WaitForProjectBuild(
+	p *circleci.Project,
+	w io.Writer,
+	in *circleci.BuildProjectInput,
+	o *circleci.BuildSummaryOutput,
+	_ time.Duration,
+	_ time.Duration,
+	_ bool) error {
 	return nil
 }
 
