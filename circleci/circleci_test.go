@@ -1,6 +1,8 @@
 package circleci
 
 import (
+	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"testing"
@@ -161,5 +163,46 @@ func testBuildProjectRequest(t *testing.T, bpoStatus int, meUser string, bsoUser
 			t.Fatalf("type not supported: %T", val)
 		}
 		return nil
+	}
+}
+
+func TestFollowProject(t *testing.T) {
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tests := []struct {
+		Name      string
+		Following bool
+		Err       error
+		Expected  error
+	}{{
+		Name:      "successfully follow project",
+		Following: true,
+		Err:       nil,
+		Expected:  nil,
+	}, {
+		Name:      "unsuccessful follow project",
+		Following: false,
+		Err:       nil,
+		Expected:  fmt.Errorf("attempted to follow %s, following property still false", project.VcsURL),
+	}}
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.Name, func(t *testing.T) {
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					output.(*followResponse).Following = tc.Following
+					return tc.Err
+				}}
+
+			err := client.FollowProject(&project, os.Stdout)
+			if err != tc.Expected {
+				t.Errorf("FollowProject() failed:\nexpected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
+			}
+		})
 	}
 }
