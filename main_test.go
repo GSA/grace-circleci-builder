@@ -25,10 +25,14 @@ func (m mockClient) FindProject(w io.Writer, fn func(*circleci.Project) bool) (*
 }
 
 func (m mockClient) FindBuildSummaries(p *circleci.Project, w io.Writer, in *circleci.BuildProjectInput) ([]*circleci.BuildSummaryOutput, error) {
+	buildTime := time.Now().AddDate(0, 0, -2)
 	resp := []*circleci.BuildSummaryOutput{{
-		BuildNum: 42,
-		Username: m.Project.Username,
-		Reponame: m.Project.Reponame,
+		BuildNum:  42,
+		Username:  m.Project.Username,
+		Reponame:  m.Project.Reponame,
+		StoppedAt: &buildTime,
+		Status:    "success",
+		Workflow:  &circleci.BuildWorkflow{WorkflowID: "test"},
 	}}
 	return resp, nil
 }
@@ -130,5 +134,45 @@ func TestRunBuilds(t *testing.T) {
 	err = runBuilds(client, 90, 1, false, entries)
 	if err != nil {
 		t.Fatalf("RunBuilds() failed: %v", err)
+	}
+}
+
+func TestShouldSkip(t *testing.T) {
+	project := circleci.Project{
+		Username: "tester",
+		Reponame: "github.com/org/test1",
+		Vcs:      "test",
+		VcsURL:   "test",
+	}
+	client := mockClient{Project: project}
+	input := &circleci.BuildProjectInput{}
+	tests := []struct {
+		Name     string
+		SkipDays int
+		Expect   bool
+	}{{
+		Name:     "always skip if successful",
+		SkipDays: -1,
+		Expect:   true,
+	}, {
+		Name:     "do not skip days less than last success",
+		SkipDays: 1,
+		Expect:   false,
+	}, {
+		Name:     "skip days greater than last success",
+		SkipDays: 3,
+		Expect:   true,
+	}}
+	for _, st := range tests {
+		tc := st
+		t.Run(tc.Name, func(t *testing.T) {
+			got, err := shouldSkip(&client, &project, input, tc.SkipDays)
+			if err != nil {
+				t.Errorf("shouldSkip() failed: %v\n", err)
+			}
+			if tc.Expect != got {
+				t.Errorf("shouldSkip() failed: Expected: %v\nGot: %v", tc.Expect, got)
+			}
+		})
 	}
 }
