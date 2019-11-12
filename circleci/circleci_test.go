@@ -188,6 +188,11 @@ func TestFollowProject(t *testing.T) {
 		Following: false,
 		Err:       nil,
 		Expected:  fmt.Errorf("attempted to follow %s, following property still false", project.VcsURL),
+	}, {
+		Name:      "error from requester function",
+		Following: true,
+		Err:       fmt.Errorf("test error"),
+		Expected:  fmt.Errorf("test error"),
 	}}
 	for _, tt := range tests {
 		tc := tt
@@ -200,8 +205,12 @@ func TestFollowProject(t *testing.T) {
 				}}
 
 			err := client.FollowProject(&project, os.Stdout)
-			if err != tc.Expected {
-				t.Errorf("FollowProject() failed:\nexpected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
+			if tc.Expected != nil && err != nil {
+				if tc.Expected.Error() != err.Error() {
+					t.Errorf("FollowProject() failed.  Expected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
+				}
+			} else if tc.Expected != err {
+				t.Errorf("FollowProject() failed.  Expected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
 			}
 		})
 	}
