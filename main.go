@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/GSA/grace-circleci-builder/circleci"
+	"github.com/GSA/grace-circleci-builder/circleci/circleciiface"
 )
 
 // entry ... contains necessary information to build a circleci project
@@ -29,7 +30,7 @@ type entry struct {
 	ContinueOnFail bool `json:"continue_on_fail"`
 }
 
-func (e *entry) Build(client *circleci.Client, logger io.Writer, project *circleci.Project, input *circleci.BuildProjectInput, jobTimeout int) error {
+func (e *entry) Build(client circleciiface.CIRCLECIAPI, logger io.Writer, project *circleci.Project, input *circleci.BuildProjectInput, jobTimeout int) error {
 	summary, err := client.BuildProject(project, logger, &circleci.BuildProjectInput{
 		Branch:   e.Branch,
 		Revision: e.Commit,
@@ -64,14 +65,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = runBuilds(token, *jobTimeoutPtr, *skipDaysPtr, *noSkipPtr, entries)
+	client := circleci.NewClient(nil, token)
+	err = runBuilds(client, *jobTimeoutPtr, *skipDaysPtr, *noSkipPtr, entries)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
 //nolint: gocyclo
-func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries []*entry) error {
+func runBuilds(client circleciiface.CIRCLECIAPI, jobTimeout int, skipDays int, noSkip bool, entries []*entry) error {
 	// loop over circleci project entries, resolving each project
 	// and executing a full build, if anything fails, return
 	for _, entry := range entries {
@@ -79,7 +81,6 @@ func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries 
 			log.Printf("skipping blank entry...\n")
 			continue
 		}
-		client := circleci.NewClient(nil, token)
 		p, err := circleci.ProjectFromURL(entry.URL)
 		if err != nil {
 			return err
@@ -125,7 +126,7 @@ func runBuilds(token string, jobTimeout int, skipDays int, noSkip bool, entries 
 	return nil
 }
 
-func shouldSkip(client *circleci.Client, project *circleci.Project, input *circleci.BuildProjectInput, skipDays int) (bool, error) {
+func shouldSkip(client circleciiface.CIRCLECIAPI, project *circleci.Project, input *circleci.BuildProjectInput, skipDays int) (bool, error) {
 	// this may need to be optimized to accept an 'after' date
 	// so we can stop iterating over old/stale job data
 	rawBuilds, err := client.FindBuildSummaries(project, os.Stdout, input)

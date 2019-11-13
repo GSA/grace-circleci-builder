@@ -1,6 +1,8 @@
 package circleci
 
 import (
+	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"testing"
@@ -19,7 +21,7 @@ func TestNew(t *testing.T) {
 func TestFollow(t *testing.T) {
 	token := os.Getenv("CIRCLECI_TOKEN")
 	if len(token) == 0 {
-		t.Fatal("CIRCLECI_TOKEN environment variable must contain the access key to authenticate to circleci.com")
+		t.Skip("CIRCLECI_TOKEN environment variable must contain the access key to authenticate to circleci.com")
 	}
 	c := NewClient(nil, token)
 	p, err := ProjectFromURL("https://github.com/GSA/grace-build")
@@ -161,5 +163,55 @@ func testBuildProjectRequest(t *testing.T, bpoStatus int, meUser string, bsoUser
 			t.Fatalf("type not supported: %T", val)
 		}
 		return nil
+	}
+}
+
+func TestFollowProject(t *testing.T) {
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tests := []struct {
+		Name      string
+		Following bool
+		Err       error
+		Expected  error
+	}{{
+		Name:      "successfully follow project",
+		Following: true,
+		Err:       nil,
+		Expected:  nil,
+	}, {
+		Name:      "unsuccessful follow project",
+		Following: false,
+		Err:       nil,
+		Expected:  fmt.Errorf("attempted to follow %s, following property still false", project.VcsURL),
+	}, {
+		Name:      "error from requester function",
+		Following: true,
+		Err:       fmt.Errorf("test error"),
+		Expected:  fmt.Errorf("test error"),
+	}}
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.Name, func(t *testing.T) {
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					output.(*followResponse).Following = tc.Following
+					return tc.Err
+				}}
+
+			err := client.FollowProject(&project, os.Stdout)
+			if tc.Expected != nil && err != nil {
+				if tc.Expected.Error() != err.Error() {
+					t.Errorf("FollowProject() failed.  Expected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
+				}
+			} else if tc.Expected != err {
+				t.Errorf("FollowProject() failed.  Expected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
+			}
+		})
 	}
 }
