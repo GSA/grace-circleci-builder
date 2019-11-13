@@ -3,11 +3,31 @@ package circleci
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"testing"
 	"time"
+
+	"gotest.tools/assert"
 )
+
+//nolint:gochecknoglobals
+var apiStub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var resp string
+	fmt.Printf("RequstURI: %q\n", r.RequestURI)
+	switch r.RequestURI {
+	case "/project/github/GSA/grace-build/follow?circle-token=":
+		resp = `{"following": true}`
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	_, err := w.Write([]byte(resp))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}))
 
 func TestNew(t *testing.T) {
 	t.Run("should allow nil client", func(t *testing.T) {
@@ -19,11 +39,21 @@ func TestNew(t *testing.T) {
 }
 
 func TestFollow(t *testing.T) {
+	var c *Client
 	token := os.Getenv("CIRCLECI_TOKEN")
 	if len(token) == 0 {
-		t.Skip("CIRCLECI_TOKEN environment variable must contain the access key to authenticate to circleci.com")
+		u, err := url.Parse(apiStub.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c = &Client{
+			client:    &http.Client{},
+			baseURL:   u,
+			requester: request,
+		}
+	} else {
+		c = NewClient(nil, token)
 	}
-	c := NewClient(nil, token)
 	p, err := ProjectFromURL("https://github.com/GSA/grace-build")
 	if err != nil {
 		t.Fatal(err)
@@ -177,22 +207,22 @@ func TestFollowProject(t *testing.T) {
 		Name      string
 		Following bool
 		Err       error
-		Expected  error
+		Expected  string
 	}{{
 		Name:      "successfully follow project",
 		Following: true,
 		Err:       nil,
-		Expected:  nil,
+		Expected:  "",
 	}, {
 		Name:      "unsuccessful follow project",
 		Following: false,
 		Err:       nil,
-		Expected:  fmt.Errorf("attempted to follow %s, following property still false", project.VcsURL),
+		Expected:  fmt.Sprintf("attempted to follow %s, following property still false", project.VcsURL),
 	}, {
 		Name:      "error from requester function",
 		Following: true,
 		Err:       fmt.Errorf("test error"),
-		Expected:  fmt.Errorf("test error"),
+		Expected:  "test error",
 	}}
 	for _, tt := range tests {
 		tc := tt
@@ -205,12 +235,10 @@ func TestFollowProject(t *testing.T) {
 				}}
 
 			err := client.FollowProject(&project, os.Stdout)
-			if tc.Expected != nil && err != nil {
-				if tc.Expected.Error() != err.Error() {
-					t.Errorf("FollowProject() failed.  Expected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
-				}
-			} else if tc.Expected != err {
-				t.Errorf("FollowProject() failed.  Expected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
+			if tc.Expected == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.Expected)
 			}
 		})
 	}

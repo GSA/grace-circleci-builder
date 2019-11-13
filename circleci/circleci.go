@@ -55,8 +55,8 @@ type Client struct {
 	//initialized http client, if not provided, will be empty client
 	client *http.Client
 	//circleci access key used for all requests
-	Token string
-	//requester
+	Token     string
+	baseURL   *url.URL
 	requester requestFunc
 }
 
@@ -67,12 +67,9 @@ func NewClient(client *http.Client, token string) *Client {
 		c.client = &http.Client{}
 	}
 	c.requester = request
+	// baseURL ... used internally to represent the base URL path for CircleCI API v1.1
+	c.baseURL = &url.URL{Scheme: "https", Host: "circleci.com", Path: "/api/v1.1/"}
 	return c
-}
-
-// baseURL ... used internally to represent the base URL path for CircleCI API v1.1
-func (c *Client) baseURL() *url.URL {
-	return &url.URL{Scheme: "https", Host: "circleci.com", Path: "/api/v1.1/"}
 }
 
 // request ... used internally to process requests to CircleCI
@@ -83,7 +80,7 @@ func request(c *Client, method string, path string, params url.Values, input int
 	}
 	params.Set("circle-token", c.Token)
 
-	u := c.baseURL().ResolveReference(&url.URL{Path: path, RawQuery: params.Encode()})
+	u := c.baseURL.ResolveReference(&url.URL{Path: path, RawQuery: params.Encode()})
 
 	req, err := http.NewRequest(method, u.String(), nil)
 	if err != nil {
