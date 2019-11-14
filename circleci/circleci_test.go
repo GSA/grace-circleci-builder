@@ -284,5 +284,4 @@ func TestWaitForProjectBuild(t *testing.T) {
 			}
 		})
 	}
-
 }
