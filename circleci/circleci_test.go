@@ -243,3 +243,46 @@ func TestFollowProject(t *testing.T) {
 		})
 	}
 }
+
+func TestWaitForProjectBuild(t *testing.T) {
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tests := []struct {
+		Name        string
+		jobTimeout  time.Duration
+		waitTimeout time.Duration
+		Err         error
+		Expected    string
+	}{{
+		Name:        "job timeout exceeded",
+		jobTimeout:  time.Duration(1) * time.Second,
+		waitTimeout: time.Minute,
+		Err:         nil,
+		Expected:    "job timeout exceeded while waiting for build test1 [0] to finish",
+	}}
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.Name, func(t *testing.T) {
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					// fmt.Println("In requester")
+					// fmt.Printf("method: %q\npath: %q\nparams: %v\ninput: %v\noutput: %v\n", method, path, params, input, output)
+					return tc.Err
+				}}
+			in := &BuildProjectInput{}
+			sum := &BuildSummaryOutput{}
+			err := client.WaitForProjectBuild(&project, os.Stdout, in, sum, tc.jobTimeout, tc.waitTimeout, false)
+			if tc.Expected == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.Expected)
+			}
+		})
+	}
+
+}
