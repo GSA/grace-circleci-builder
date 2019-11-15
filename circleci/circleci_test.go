@@ -1,6 +1,7 @@
 package circleci
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,10 @@ import (
 
 	"gotest.tools/assert"
 )
+
+func boolPtr(b bool) *bool {
+	return &b
+}
 
 //nolint:gochecknoglobals
 var apiStub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +249,7 @@ func TestFollowProject(t *testing.T) {
 	}
 }
 
+// nolint: funlen
 func TestWaitForProjectBuild(t *testing.T) {
 	project := Project{
 		Username: "org",
@@ -251,27 +257,95 @@ func TestWaitForProjectBuild(t *testing.T) {
 		Vcs:      "gh",
 		VcsURL:   "https://github.com/org/test1",
 	}
-	tests := []struct {
-		Name        string
+	tt := map[string]struct {
 		jobTimeout  time.Duration
 		waitTimeout time.Duration
+		build       Build
+		user        User
+		summary     string
 		Err         error
 		Expected    string
-	}{{
-		Name:        "job timeout exceeded",
+	}{"job timeout exceeded": {
 		jobTimeout:  time.Duration(1) * time.Second,
 		waitTimeout: time.Minute,
-		Err:         nil,
-		Expected:    "job timeout exceeded while waiting for build test1 [0] to finish",
+		build: Build{
+			Lifecycle: "not finished",
+		},
+		Err:      nil,
+		Expected: "job timeout exceeded while waiting for build test1 [0] to finish",
+	}, "job failed": {
+		jobTimeout:  time.Duration(1) * time.Minute,
+		waitTimeout: time.Minute,
+		build: Build{
+			Lifecycle: "finished",
+			Failed:    boolPtr(true),
+		},
+		Err:      nil,
+		Expected: "build test1 [0] failed",
+	}, "could not obtain workflow details": {
+		jobTimeout:  time.Duration(1) * time.Minute,
+		waitTimeout: time.Minute,
+		build: Build{
+			Lifecycle: "finished",
+			Failed:    boolPtr(false),
+		},
+		Err:      nil,
+		Expected: "could not obtain workflow details from build 0",
+	}, "job succeeded": {
+		jobTimeout:  time.Duration(1) * time.Minute,
+		waitTimeout: time.Minute,
+		build: Build{
+			BuildNum:  42,
+			Lifecycle: "not finished",
+			Workflow:  &BuildWorkflow{WorkflowID: "test"},
+		},
+		summary: `[{
+			"build_num": 42,
+			"username": "org",
+			"lifecycle": "not finished",
+			"reponame": "test1",
+			"workflows": {"workflow_id": "test"},
+			"user": {"login": "org"}
+		}]`,
+		Err:      nil,
+		Expected: "",
 	}}
-	for _, tt := range tests {
-		tc := tt
-		t.Run(tc.Name, func(t *testing.T) {
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
 			client := &Client{
 				client: &http.Client{},
 				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
-					// fmt.Println("In requester")
-					// fmt.Printf("method: %q\npath: %q\nparams: %v\ninput: %v\noutput: %v\n", method, path, params, input, output)
+					switch v := output.(type) {
+					case *Build:
+						output.(*Build).Lifecycle = tc.build.Lifecycle
+						output.(*Build).Failed = tc.build.Failed
+						output.(*Build).Workflow = tc.build.Workflow
+						output.(*Build).BuildNum = tc.build.BuildNum
+						//Change values for second query
+						tc.build.Lifecycle = "finished"
+						tc.build.Failed = boolPtr(false)
+					case *User:
+						output.(*User).Username = project.Username
+					case *[]*BuildSummaryOutput:
+						err := json.Unmarshal([]byte(tc.summary), output)
+						if err != nil {
+							return fmt.Errorf("failed to decode response: %v", err)
+						}
+						//Change values for second query
+						tc.summary = `[{
+							"build_num": 42,
+							"username": "org",
+							"lifecycle": "finished",
+							"reponame": "test1",
+							"outcome": "success",
+							"workflows": {"workflow_id": "test"},
+							"user": {"login": "org"}
+						}]`
+						tc.build.Lifecycle = "finished"
+					default:
+						return fmt.Errorf("unknown output type: %T", v)
+					}
 					return tc.Err
 				}}
 			in := &BuildProjectInput{}
