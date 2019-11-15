@@ -60,14 +60,10 @@ func TestFollow(t *testing.T) {
 		c = NewClient(nil, token)
 	}
 	p, err := ProjectFromURL("https://github.com/GSA/grace-build")
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 	t.Logf("Project: %v\n", p)
 	err = c.FollowProject(p, os.Stdout)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 }
 
 type testCase struct {
@@ -98,9 +94,7 @@ func TestBuildProject(t *testing.T) {
 					Revision: "",
 					Branch:   "",
 				}, time.Second)
-				if err == nil {
-					t.Fatal("expected BuildProject to fail, got no error")
-				}
+				assert.Error(t, err, "failed to start project build: Status: 404, Body: \"\"")
 			}
 			return tc
 		},
@@ -119,9 +113,7 @@ func TestBuildProject(t *testing.T) {
 					Revision: "",
 					Branch:   "",
 				}, time.Second)
-				if err == nil {
-					t.Fatal("expected BuildProject to fail, got no error")
-				}
+				assert.Error(t, err, "time expired while running the checker")
 			}
 			return tc
 		},
@@ -140,9 +132,7 @@ func TestBuildProject(t *testing.T) {
 					Revision: "2",
 					Branch:   "1",
 				}, time.Second)
-				if err == nil {
-					t.Fatal("expected BuildProject to fail, got no error")
-				}
+				assert.Error(t, err, "time expired while running the checker")
 			}
 			return tc
 		},
@@ -161,9 +151,7 @@ func TestBuildProject(t *testing.T) {
 					Revision: "1",
 					Branch:   "1",
 				}, time.Second)
-				if err == nil {
-					t.Fatal("expected BuildProject to fail, got no error")
-				}
+				assert.Error(t, err, "time expired while running the checker")
 			}
 			return tc
 		},
@@ -292,7 +280,7 @@ func TestWaitForProjectBuild(t *testing.T) {
 		Err:      nil,
 		Expected: "could not obtain workflow details from build 0",
 	}, "job succeeded": {
-		jobTimeout:  time.Duration(1) * time.Minute,
+		jobTimeout:  time.Duration(30) * time.Second,
 		waitTimeout: time.Minute,
 		build: Build{
 			BuildNum:  42,
@@ -356,6 +344,89 @@ func TestWaitForProjectBuild(t *testing.T) {
 			} else {
 				assert.Error(t, err, tc.Expected)
 			}
+		})
+	}
+}
+
+// nolint: funlen
+func TestBuildSummary(t *testing.T) {
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tt := map[string]struct {
+		in          BuildSummaryInput
+		resp        string
+		err         error
+		expectedErr string
+		expected    []*BuildSummaryOutput
+	}{"unfiltered": {
+		resp: `[{
+			"build_num": 42,
+			"username": "org",
+			"lifecycle": "finished",
+			"reponame": "test1",
+			"workflows": {"workflow_id": "test"},
+			"user": {"login": "org"}
+		},{
+			"build_num": 43,
+			"username": "org",
+			"lifecycle": "finished",
+			"reponame": "test2",
+			"workflows": {"workflow_id": "test2"},
+			"user": {"login": "org"}
+		}]`,
+		expected: []*BuildSummaryOutput{{
+			BuildNum:  42,
+			Username:  "org",
+			Lifecycle: "finished",
+			Reponame:  "test1",
+			User:      &User{Username: "org"},
+			Workflow:  &BuildWorkflow{WorkflowID: "test"},
+		},
+			{
+				BuildNum:  43,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test2",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test2"},
+			},
+		},
+	}, "nil response": {
+		expectedErr: "failed to decode response: unexpected end of JSON input",
+	}, "filtered": {
+		in: BuildSummaryInput{
+			Limit:  1,
+			Offset: 1,
+			Filter: "ignored",
+		},
+		resp:        `[]`,
+		err:         nil,
+		expectedErr: "",
+		expected:    []*BuildSummaryOutput{},
+	}}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					err := json.Unmarshal([]byte(tc.resp), output)
+					if err != nil {
+						return fmt.Errorf("failed to decode response: %v", err)
+					}
+					return tc.err
+				}}
+			actual, err := client.BuildSummary(&project, os.Stdout, &tc.in)
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.expectedErr)
+			}
+			assert.DeepEqual(t, tc.expected, actual)
 		})
 	}
 }
