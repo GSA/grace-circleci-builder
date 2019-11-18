@@ -196,11 +196,12 @@ func TestFollowProject(t *testing.T) {
 		Vcs:      "gh",
 		VcsURL:   "https://github.com/org/test1",
 	}
-	tests := []struct {
+	tt := []struct {
 		Name      string
-		Following bool
 		Err       error
 		Expected  string
+		Following bool
+		slow      bool
 	}{{
 		Name:      "successfully follow project",
 		Following: true,
@@ -216,10 +217,14 @@ func TestFollowProject(t *testing.T) {
 		Following: true,
 		Err:       fmt.Errorf("test error"),
 		Expected:  "test error",
+		slow:      true,
 	}}
-	for _, tt := range tests {
-		tc := tt
+	for _, tc := range tt {
+		tc := tc
 		t.Run(tc.Name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
 			client := &Client{
 				client: &http.Client{},
 				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
@@ -253,6 +258,7 @@ func TestWaitForProjectBuild(t *testing.T) {
 		summary     string
 		Err         error
 		Expected    string
+		slow        bool
 	}{"job timeout exceeded": {
 		jobTimeout:  time.Duration(1) * time.Second,
 		waitTimeout: time.Minute,
@@ -297,10 +303,14 @@ func TestWaitForProjectBuild(t *testing.T) {
 		}]`,
 		Err:      nil,
 		Expected: "",
+		slow:     true,
 	}}
 	for name, tc := range tt {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
 			client := &Client{
 				client: &http.Client{},
 				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
@@ -362,6 +372,7 @@ func TestBuildSummary(t *testing.T) {
 		err         error
 		expectedErr string
 		expected    []*BuildSummaryOutput
+		slow        bool
 	}{"unfiltered": {
 		resp: `[{
 			"build_num": 42,
@@ -397,6 +408,7 @@ func TestBuildSummary(t *testing.T) {
 		},
 	}, "nil response": {
 		expectedErr: "failed to decode response: unexpected end of JSON input",
+		slow:        true,
 	}, "filtered": {
 		in: BuildSummaryInput{
 			Limit:  1,
@@ -411,6 +423,9 @@ func TestBuildSummary(t *testing.T) {
 	for name, tc := range tt {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
 			client := &Client{
 				client: &http.Client{},
 				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
