@@ -358,7 +358,7 @@ func TestWaitForProjectBuild(t *testing.T) {
 	}
 }
 
-// nolint: funlen, gomnd
+// nolint: funlen, gomnd, dupl
 func TestBuildSummary(t *testing.T) {
 	project := Project{
 		Username: "org",
@@ -436,6 +436,105 @@ func TestBuildSummary(t *testing.T) {
 					return tc.err
 				}}
 			actual, err := client.BuildSummary(&project, os.Stdout, &tc.in)
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.expectedErr)
+			}
+			assert.DeepEqual(t, tc.expected, actual)
+		})
+	}
+}
+
+// nolint: funlen, gomnd, dupl
+func TestFindBuildSummaries(t *testing.T) {
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tt := map[string]struct {
+		in          BuildProjectInput
+		resp        string
+		err         error
+		expectedErr string
+		expected    []*BuildSummaryOutput
+		slow        bool
+	}{
+		/*{"unfiltered": {
+			resp: `[{
+				"build_num": 42,
+				"username": "org",
+				"lifecycle": "finished",
+				"reponame": "test1",
+				"branch": "test",
+				"workflows": {"workflow_id": "test"},
+				"user": {"login": "org"}
+			},{
+				"build_num": 43,
+				"username": "org",
+				"lifecycle": "finished",
+				"reponame": "test2",
+				"branch": "test",
+				"workflows": {"workflow_id": "test2"},
+				"user": {"login": "org"}
+			}]`,
+			expected: []*BuildSummaryOutput{{
+				BuildNum:  42,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Branch:    "test",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test"},
+			},
+				{
+					BuildNum:  43,
+					Username:  "org",
+					Lifecycle: "finished",
+					Reponame:  "test2",
+					Branch:    "test",
+					User:      &User{Username: "org"},
+					Workflow:  &BuildWorkflow{WorkflowID: "test2"},
+				},
+			},
+		},
+		*/
+		"nil response": {
+			expectedErr: "failed to decode response: unexpected end of JSON input",
+			slow:        true,
+		}, "filtered empty response": {
+			in: BuildProjectInput{
+				Branch: "test",
+			},
+			resp:        `[]`,
+			err:         nil,
+			expectedErr: "",
+			expected:    nil,
+		}}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					switch v := output.(type) {
+					case *User:
+						output.(*User).Username = project.Username
+					default:
+						t.Logf("output type: %T", v)
+						err := json.Unmarshal([]byte(tc.resp), output)
+						if err != nil {
+							return fmt.Errorf("failed to decode response: %v", err)
+						}
+					}
+					return tc.err
+				}}
+			actual, err := client.FindBuildSummaries(&project, os.Stdout, &tc.in)
 			if tc.expectedErr == "" {
 				assert.NilError(t, err)
 			} else {
