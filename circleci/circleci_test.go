@@ -237,7 +237,7 @@ func TestFollowProject(t *testing.T) {
 	}
 }
 
-// nolint: funlen
+// nolint: funlen, gomnd
 func TestWaitForProjectBuild(t *testing.T) {
 	project := Project{
 		Username: "org",
@@ -348,7 +348,7 @@ func TestWaitForProjectBuild(t *testing.T) {
 	}
 }
 
-// nolint: funlen
+// nolint: funlen, gomnd
 func TestBuildSummary(t *testing.T) {
 	project := Project{
 		Username: "org",

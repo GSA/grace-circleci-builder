@@ -24,6 +24,7 @@ func (m mockClient) FindProject(w io.Writer, fn func(*circleci.Project) bool) (*
 	return &m.Project, nil
 }
 
+// nolint: gomnd
 func (m mockClient) FindBuildSummaries(p *circleci.Project, w io.Writer, in *circleci.BuildProjectInput) ([]*circleci.BuildSummaryOutput, error) {
 	buildTime := time.Now().AddDate(0, 0, -2)
 	resp := []*circleci.BuildSummaryOutput{{
@@ -37,6 +38,7 @@ func (m mockClient) FindBuildSummaries(p *circleci.Project, w io.Writer, in *cir
 	return resp, nil
 }
 
+// nolint: gomnd
 func (m mockClient) BuildProject(p *circleci.Project, w io.Writer, in *circleci.BuildProjectInput, _ time.Duration) (*circleci.BuildSummaryOutput, error) {
 	resp := &circleci.BuildSummaryOutput{
 		BuildNum: 42,
@@ -57,6 +59,7 @@ func (m mockClient) WaitForProjectBuild(
 	return nil
 }
 
+//nolint: gomnd
 func TestParseEntries(t *testing.T) {
 	tests := []struct {
 		Name         string
@@ -137,6 +140,7 @@ func TestRunBuilds(t *testing.T) {
 	}
 }
 
+// nolint: gomnd
 func TestShouldSkip(t *testing.T) {
 	project := circleci.Project{
 		Username: "tester",
