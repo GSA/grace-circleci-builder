@@ -461,9 +461,8 @@ func TestFindBuildSummaries(t *testing.T) {
 		expectedErr string
 		expected    []*BuildSummaryOutput
 		slow        bool
-	}{
-		/*{"unfiltered": {
-			resp: `[{
+	}{"unfiltered": {
+		resp: `[{
 				"build_num": 42,
 				"username": "org",
 				"lifecycle": "finished",
@@ -480,39 +479,27 @@ func TestFindBuildSummaries(t *testing.T) {
 				"workflows": {"workflow_id": "test2"},
 				"user": {"login": "org"}
 			}]`,
-			expected: []*BuildSummaryOutput{{
-				BuildNum:  42,
-				Username:  "org",
-				Lifecycle: "finished",
-				Reponame:  "test1",
-				Branch:    "test",
-				User:      &User{Username: "org"},
-				Workflow:  &BuildWorkflow{WorkflowID: "test"},
-			},
-				{
-					BuildNum:  43,
-					Username:  "org",
-					Lifecycle: "finished",
-					Reponame:  "test2",
-					Branch:    "test",
-					User:      &User{Username: "org"},
-					Workflow:  &BuildWorkflow{WorkflowID: "test2"},
-				},
-			},
+		expected: []*BuildSummaryOutput{{
+			BuildNum:  42,
+			Username:  "org",
+			Lifecycle: "finished",
+			Reponame:  "test1",
+			Branch:    "test",
+			User:      &User{Username: "org"},
+			Workflow:  &BuildWorkflow{WorkflowID: "test"},
+		}},
+	}, "nil response": {
+		expectedErr: "failed to decode response: unexpected end of JSON input",
+		slow:        true,
+	}, "filtered empty response": {
+		in: BuildProjectInput{
+			Branch: "test",
 		},
-		*/
-		"nil response": {
-			expectedErr: "failed to decode response: unexpected end of JSON input",
-			slow:        true,
-		}, "filtered empty response": {
-			in: BuildProjectInput{
-				Branch: "test",
-			},
-			resp:        `[]`,
-			err:         nil,
-			expectedErr: "",
-			expected:    nil,
-		}}
+		resp:        `[]`,
+		err:         nil,
+		expectedErr: "",
+		expected:    nil,
+	}}
 	for name, tc := range tt {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
