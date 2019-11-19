@@ -513,7 +513,7 @@ func TestFindBuildSummaries(t *testing.T) {
 					case *User:
 						output.(*User).Username = project.Username
 					default:
-						t.Logf("output type: %T", v)
+						_ = v // eat v
 						err := json.Unmarshal([]byte(tc.resp), output)
 						if err != nil {
 							return fmt.Errorf("failed to decode response: %v", err)
@@ -527,6 +527,92 @@ func TestFindBuildSummaries(t *testing.T) {
 			} else {
 				assert.Error(t, err, tc.expectedErr)
 			}
+			assert.DeepEqual(t, tc.expected, actual)
+		})
+	}
+}
+
+// nolint: funlen, gomnd
+func TestFilterBuildSummariesByWorkflowStatus(t *testing.T) {
+	tt := map[string]struct {
+		in       []*BuildSummaryOutput
+		status   string
+		expected []*BuildSummaryOutput
+	}{"nil input": {},
+		"status is empty": {
+			in: []*BuildSummaryOutput{{
+				BuildNum:  41,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Outcome:   "failed",
+				Status:    "failed",
+				Branch:    "feature",
+				Revision:  "006",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test"},
+			}, {
+				BuildNum:  42,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Outcome:   "success",
+				Status:    "success",
+				Branch:    "feature",
+				Revision:  "007",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test"},
+			}}},
+		"status is finished": {
+			in: []*BuildSummaryOutput{{
+				BuildNum:  41,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Outcome:   "failed",
+				Status:    "failed",
+				Branch:    "feature",
+				Revision:  "006",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test1"},
+			}, {
+				BuildNum:  42,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Outcome:   "success",
+				Status:    "success",
+				Branch:    "feature",
+				Revision:  "007",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test2"},
+			}, {
+				BuildNum:  43,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Status:    "not_running",
+				Branch:    "feature",
+				Revision:  "007",
+				User:      &User{Username: "org"},
+			}},
+			status: "success",
+			expected: []*BuildSummaryOutput{{
+				BuildNum:  42,
+				Username:  "org",
+				Lifecycle: "finished",
+				Outcome:   "success",
+				Status:    "success",
+				Reponame:  "test1",
+				Branch:    "feature",
+				Revision:  "007",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test2"},
+			}}}}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			actual := FilterBuildSummariesByWorkflowStatus(tc.in, tc.status)
 			assert.DeepEqual(t, tc.expected, actual)
 		})
 	}
