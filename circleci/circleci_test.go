@@ -189,6 +189,7 @@ func testBuildProjectRequest(t *testing.T, bpoStatus int, meUser string, bsoUser
 	}
 }
 
+// nolint: dupl
 func TestFollowProject(t *testing.T) {
 	project := Project{
 		Username: "org",
@@ -692,6 +693,7 @@ func TestProjects(t *testing.T) {
 	}
 }
 
+// nolint: dupl
 func TestUnfollowProject(t *testing.T) {
 	project := Project{
 		Username: "org",
@@ -741,6 +743,106 @@ func TestUnfollowProject(t *testing.T) {
 			} else {
 				assert.Error(t, err, tc.Expected)
 			}
+		})
+	}
+}
+
+// nolint: funlen
+func TestFindProject(t *testing.T) {
+	tt := map[string]struct {
+		URL         string
+		resp        string
+		err         error
+		expectedErr string
+		expected    *Project
+		slow        bool
+	}{
+		"happy path": {
+			URL: "https://github.com/org/test2",
+			resp: `[{
+					"username": "org",
+					"reponame": "test1",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test1"
+				},{
+					"username": "org",
+					"reponame": "test2",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test2"
+				},{
+					"username": "org",
+					"reponame": "test3",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test3"
+				}]`,
+			expected: &Project{
+				Username: "org",
+				Reponame: "test2",
+				Vcs:      "gh",
+				VcsURL:   "https://github.com/org/test2",
+			},
+		},
+		"sad path": {
+			URL: "https://github.com/org/test4",
+			resp: `[{
+					"username": "org",
+					"reponame": "test1",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test1"
+				},{
+					"username": "org",
+					"reponame": "test2",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test2"
+				},{
+					"username": "org",
+					"reponame": "test3",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test3"
+				}]`,
+			expected:    nil,
+			expectedErr: "failed to locate a project using the given matcher",
+		},
+		"nil": {
+			expectedErr: "failed to decode response: unexpected end of JSON input",
+			slow:        true,
+		},
+		"requester error": {
+			resp:        "[]",
+			err:         fmt.Errorf("%s", "test error"),
+			expectedErr: "test error",
+			slow:        true,
+		},
+		"empty": {
+			resp:        "[]",
+			expected:    nil,
+			expectedErr: "failed to locate a project using the given matcher",
+		},
+	}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					err := json.Unmarshal([]byte(tc.resp), output)
+					if err != nil {
+						return fmt.Errorf("failed to decode response: %v", err)
+					}
+					return tc.err
+				}}
+			actual, err := client.FindProject(os.Stdout, func(p *Project) bool {
+				return p.VcsURL == tc.URL
+			})
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.expectedErr)
+			}
+			assert.DeepEqual(t, tc.expected, actual)
 		})
 	}
 }
