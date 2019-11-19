@@ -191,6 +191,8 @@ func testBuildProjectRequest(t *testing.T, bpoStatus int, meUser string, bsoUser
 
 // nolint: dupl
 func TestFollowProject(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
 	project := Project{
 		Username: "org",
 		Reponame: "test1",
@@ -245,6 +247,8 @@ func TestFollowProject(t *testing.T) {
 
 // nolint: funlen, gomnd
 func TestWaitForProjectBuild(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
 	project := Project{
 		Username: "org",
 		Reponame: "test1",
@@ -361,6 +365,8 @@ func TestWaitForProjectBuild(t *testing.T) {
 
 // nolint: funlen, gomnd, dupl
 func TestBuildSummary(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
 	project := Project{
 		Username: "org",
 		Reponame: "test1",
@@ -449,6 +455,8 @@ func TestBuildSummary(t *testing.T) {
 
 // nolint: funlen, gomnd, dupl
 func TestFindBuildSummaries(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
 	project := Project{
 		Username: "org",
 		Reponame: "test1",
@@ -621,6 +629,8 @@ func TestFilterBuildSummariesByWorkflowStatus(t *testing.T) {
 
 // nolint: funlen
 func TestProjects(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
 	tt := map[string]struct {
 		resp        string
 		err         error
@@ -695,6 +705,8 @@ func TestProjects(t *testing.T) {
 
 // nolint: dupl
 func TestUnfollowProject(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
 	project := Project{
 		Username: "org",
 		Reponame: "test1",
@@ -749,6 +761,8 @@ func TestUnfollowProject(t *testing.T) {
 
 // nolint: funlen
 func TestFindProject(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
 	tt := map[string]struct {
 		URL         string
 		resp        string

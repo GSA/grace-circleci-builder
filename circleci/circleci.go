@@ -31,7 +31,8 @@ func (r RequestError) Error() string {
 	return r.Message
 }
 
-const retrierIntervalSecs, retrierAttempts = 30, 3
+// nolint: gochecknoglobals
+var retrierIntervalSecs, retrierAttempts = 30, 3
 
 //nolint:unparam
 func retrier(intervalSecs int, attempts int, fn func() error) (err error) {
