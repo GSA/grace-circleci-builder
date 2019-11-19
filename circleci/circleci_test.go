@@ -691,3 +691,56 @@ func TestProjects(t *testing.T) {
 		})
 	}
 }
+
+func TestUnfollowProject(t *testing.T) {
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tt := []struct {
+		Name      string
+		Err       error
+		Expected  string
+		Following bool
+		slow      bool
+	}{{
+		Name:      "successfully unfollow project",
+		Following: false,
+		Err:       nil,
+		Expected:  "",
+	}, {
+		Name:      "unsuccessful unfollow project",
+		Following: true,
+		Err:       nil,
+		Expected:  fmt.Sprintf("attempted to unfollow %s, following property still true", project.VcsURL),
+	}, {
+		Name:      "error from requester function",
+		Following: true,
+		Err:       fmt.Errorf("test error"),
+		Expected:  "test error",
+		slow:      true,
+	}}
+	for _, tc := range tt {
+		tc := tc
+		t.Run(tc.Name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					output.(*followResponse).Following = tc.Following
+					return tc.Err
+				}}
+
+			err := client.UnfollowProject(&project, os.Stdout)
+			if tc.Expected == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.Expected)
+			}
+		})
+	}
+}
