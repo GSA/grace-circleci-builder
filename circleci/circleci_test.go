@@ -1,13 +1,38 @@
 package circleci
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"testing"
 	"time"
+
+	"gotest.tools/assert"
 )
+
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+//nolint:gochecknoglobals
+var apiStub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var resp string
+	fmt.Printf("RequstURI: %q\n", r.RequestURI)
+	switch r.RequestURI {
+	case "/project/github/GSA/grace-build/follow?circle-token=":
+		resp = `{"following": true}`
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	_, err := w.Write([]byte(resp))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}))
 
 func TestNew(t *testing.T) {
 	t.Run("should allow nil client", func(t *testing.T) {
@@ -19,20 +44,26 @@ func TestNew(t *testing.T) {
 }
 
 func TestFollow(t *testing.T) {
+	var c *Client
 	token := os.Getenv("CIRCLECI_TOKEN")
 	if len(token) == 0 {
-		t.Skip("CIRCLECI_TOKEN environment variable must contain the access key to authenticate to circleci.com")
+		u, err := url.Parse(apiStub.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c = &Client{
+			client:    &http.Client{},
+			baseURL:   u,
+			requester: request,
+		}
+	} else {
+		c = NewClient(nil, token)
 	}
-	c := NewClient(nil, token)
 	p, err := ProjectFromURL("https://github.com/GSA/grace-build")
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 	t.Logf("Project: %v\n", p)
 	err = c.FollowProject(p, os.Stdout)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 }
 
 type testCase struct {
@@ -63,9 +94,7 @@ func TestBuildProject(t *testing.T) {
 					Revision: "",
 					Branch:   "",
 				}, time.Second)
-				if err == nil {
-					t.Fatal("expected BuildProject to fail, got no error")
-				}
+				assert.Error(t, err, "failed to start project build: Status: 404, Body: \"\"")
 			}
 			return tc
 		},
@@ -84,9 +113,7 @@ func TestBuildProject(t *testing.T) {
 					Revision: "",
 					Branch:   "",
 				}, time.Second)
-				if err == nil {
-					t.Fatal("expected BuildProject to fail, got no error")
-				}
+				assert.Error(t, err, "time expired while running the checker")
 			}
 			return tc
 		},
@@ -105,9 +132,7 @@ func TestBuildProject(t *testing.T) {
 					Revision: "2",
 					Branch:   "1",
 				}, time.Second)
-				if err == nil {
-					t.Fatal("expected BuildProject to fail, got no error")
-				}
+				assert.Error(t, err, "time expired while running the checker")
 			}
 			return tc
 		},
@@ -126,9 +151,7 @@ func TestBuildProject(t *testing.T) {
 					Revision: "1",
 					Branch:   "1",
 				}, time.Second)
-				if err == nil {
-					t.Fatal("expected BuildProject to fail, got no error")
-				}
+				assert.Error(t, err, "time expired while running the checker")
 			}
 			return tc
 		},
@@ -166,37 +189,45 @@ func testBuildProjectRequest(t *testing.T, bpoStatus int, meUser string, bsoUser
 	}
 }
 
+// nolint: dupl
 func TestFollowProject(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
 	project := Project{
 		Username: "org",
 		Reponame: "test1",
 		Vcs:      "gh",
 		VcsURL:   "https://github.com/org/test1",
 	}
-	tests := []struct {
+	tt := []struct {
 		Name      string
-		Following bool
 		Err       error
-		Expected  error
+		Expected  string
+		Following bool
+		slow      bool
 	}{{
 		Name:      "successfully follow project",
 		Following: true,
 		Err:       nil,
-		Expected:  nil,
+		Expected:  "",
 	}, {
 		Name:      "unsuccessful follow project",
 		Following: false,
 		Err:       nil,
-		Expected:  fmt.Errorf("attempted to follow %s, following property still false", project.VcsURL),
+		Expected:  fmt.Sprintf("attempted to follow %s, following property still false", project.VcsURL),
 	}, {
 		Name:      "error from requester function",
 		Following: true,
 		Err:       fmt.Errorf("test error"),
-		Expected:  fmt.Errorf("test error"),
+		Expected:  "test error",
+		slow:      true,
 	}}
-	for _, tt := range tests {
-		tc := tt
+	for _, tc := range tt {
+		tc := tc
 		t.Run(tc.Name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
 			client := &Client{
 				client: &http.Client{},
 				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
@@ -205,13 +236,627 @@ func TestFollowProject(t *testing.T) {
 				}}
 
 			err := client.FollowProject(&project, os.Stdout)
-			if tc.Expected != nil && err != nil {
-				if tc.Expected.Error() != err.Error() {
-					t.Errorf("FollowProject() failed.  Expected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
-				}
-			} else if tc.Expected != err {
-				t.Errorf("FollowProject() failed.  Expected: %v (%T)\nGot: %v (%T)", tc.Expected, tc.Expected, err, err)
+			if tc.Expected == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.Expected)
 			}
+		})
+	}
+}
+
+// nolint: funlen, gomnd
+func TestWaitForProjectBuild(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tt := map[string]struct {
+		jobTimeout  time.Duration
+		waitTimeout time.Duration
+		build       Build
+		user        User
+		summary     string
+		Err         error
+		Expected    string
+		slow        bool
+	}{"job timeout exceeded": {
+		jobTimeout:  time.Duration(1) * time.Second,
+		waitTimeout: time.Minute,
+		build: Build{
+			Lifecycle: "not finished",
+		},
+		Err:      nil,
+		Expected: "job timeout exceeded while waiting for build test1 [0] to finish",
+	}, "job failed": {
+		jobTimeout:  time.Duration(1) * time.Minute,
+		waitTimeout: time.Minute,
+		build: Build{
+			Lifecycle: "finished",
+			Failed:    boolPtr(true),
+		},
+		Err:      nil,
+		Expected: "build test1 [0] failed",
+	}, "could not obtain workflow details": {
+		jobTimeout:  time.Duration(1) * time.Minute,
+		waitTimeout: time.Minute,
+		build: Build{
+			Lifecycle: "finished",
+			Failed:    boolPtr(false),
+		},
+		Err:      nil,
+		Expected: "could not obtain workflow details from build 0",
+	}, "job succeeded": {
+		jobTimeout:  time.Duration(30) * time.Second,
+		waitTimeout: time.Minute,
+		build: Build{
+			BuildNum:  42,
+			Lifecycle: "not finished",
+			Workflow:  &BuildWorkflow{WorkflowID: "test"},
+		},
+		summary: `[{
+			"build_num": 42,
+			"username": "org",
+			"lifecycle": "not finished",
+			"reponame": "test1",
+			"workflows": {"workflow_id": "test"},
+			"user": {"login": "org"}
+		}]`,
+		Err:      nil,
+		Expected: "",
+		slow:     true,
+	}}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					switch v := output.(type) {
+					case *Build:
+						output.(*Build).Lifecycle = tc.build.Lifecycle
+						output.(*Build).Failed = tc.build.Failed
+						output.(*Build).Workflow = tc.build.Workflow
+						output.(*Build).BuildNum = tc.build.BuildNum
+						//Change values for second query
+						tc.build.Lifecycle = "finished"
+						tc.build.Failed = boolPtr(false)
+					case *User:
+						output.(*User).Username = project.Username
+					case *[]*BuildSummaryOutput:
+						err := json.Unmarshal([]byte(tc.summary), output)
+						if err != nil {
+							return fmt.Errorf("failed to decode response: %v", err)
+						}
+						//Change values for second query
+						tc.summary = `[{
+							"build_num": 42,
+							"username": "org",
+							"lifecycle": "finished",
+							"reponame": "test1",
+							"outcome": "success",
+							"workflows": {"workflow_id": "test"},
+							"user": {"login": "org"}
+						}]`
+						tc.build.Lifecycle = "finished"
+					default:
+						return fmt.Errorf("unknown output type: %T", v)
+					}
+					return tc.Err
+				}}
+			in := &BuildProjectInput{}
+			sum := &BuildSummaryOutput{}
+			err := client.WaitForProjectBuild(&project, os.Stdout, in, sum, tc.jobTimeout, tc.waitTimeout, false)
+			if tc.Expected == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.Expected)
+			}
+		})
+	}
+}
+
+// nolint: funlen, gomnd, dupl
+func TestBuildSummary(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tt := map[string]struct {
+		in          BuildSummaryInput
+		resp        string
+		err         error
+		expectedErr string
+		expected    []*BuildSummaryOutput
+		slow        bool
+	}{"unfiltered": {
+		resp: `[{
+			"build_num": 42,
+			"username": "org",
+			"lifecycle": "finished",
+			"reponame": "test1",
+			"workflows": {"workflow_id": "test"},
+			"user": {"login": "org"}
+		},{
+			"build_num": 43,
+			"username": "org",
+			"lifecycle": "finished",
+			"reponame": "test2",
+			"workflows": {"workflow_id": "test2"},
+			"user": {"login": "org"}
+		}]`,
+		expected: []*BuildSummaryOutput{{
+			BuildNum:  42,
+			Username:  "org",
+			Lifecycle: "finished",
+			Reponame:  "test1",
+			User:      &User{Username: "org"},
+			Workflow:  &BuildWorkflow{WorkflowID: "test"},
+		},
+			{
+				BuildNum:  43,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test2",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test2"},
+			},
+		},
+	}, "nil response": {
+		expectedErr: "failed to decode response: unexpected end of JSON input",
+		slow:        true,
+	}, "filtered": {
+		in: BuildSummaryInput{
+			Limit:  1,
+			Offset: 1,
+			Filter: "ignored",
+		},
+		resp:        `[]`,
+		err:         nil,
+		expectedErr: "",
+		expected:    []*BuildSummaryOutput{},
+	}}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					err := json.Unmarshal([]byte(tc.resp), output)
+					if err != nil {
+						return fmt.Errorf("failed to decode response: %v", err)
+					}
+					return tc.err
+				}}
+			actual, err := client.BuildSummary(&project, os.Stdout, &tc.in)
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.expectedErr)
+			}
+			assert.DeepEqual(t, tc.expected, actual)
+		})
+	}
+}
+
+// nolint: funlen, gomnd, dupl
+func TestFindBuildSummaries(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tt := map[string]struct {
+		in          BuildProjectInput
+		resp        string
+		err         error
+		expectedErr string
+		expected    []*BuildSummaryOutput
+		slow        bool
+	}{"unfiltered": {
+		resp: `[{
+				"build_num": 42,
+				"username": "org",
+				"lifecycle": "finished",
+				"reponame": "test1",
+				"branch": "test",
+				"workflows": {"workflow_id": "test"},
+				"user": {"login": "org"}
+			},{
+				"build_num": 43,
+				"username": "org",
+				"lifecycle": "finished",
+				"reponame": "test2",
+				"branch": "test",
+				"workflows": {"workflow_id": "test2"},
+				"user": {"login": "org"}
+			}]`,
+		expected: []*BuildSummaryOutput{{
+			BuildNum:  42,
+			Username:  "org",
+			Lifecycle: "finished",
+			Reponame:  "test1",
+			Branch:    "test",
+			User:      &User{Username: "org"},
+			Workflow:  &BuildWorkflow{WorkflowID: "test"},
+		}},
+	}, "nil response": {
+		expectedErr: "failed to decode response: unexpected end of JSON input",
+		slow:        true,
+	}, "filtered empty response": {
+		in: BuildProjectInput{
+			Branch: "test",
+		},
+		resp:        `[]`,
+		err:         nil,
+		expectedErr: "",
+		expected:    nil,
+	}}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					switch v := output.(type) {
+					case *User:
+						output.(*User).Username = project.Username
+					default:
+						_ = v // eat v
+						err := json.Unmarshal([]byte(tc.resp), output)
+						if err != nil {
+							return fmt.Errorf("failed to decode response: %v", err)
+						}
+					}
+					return tc.err
+				}}
+			actual, err := client.FindBuildSummaries(&project, os.Stdout, &tc.in)
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.expectedErr)
+			}
+			assert.DeepEqual(t, tc.expected, actual)
+		})
+	}
+}
+
+// nolint: funlen, gomnd
+func TestFilterBuildSummariesByWorkflowStatus(t *testing.T) {
+	tt := map[string]struct {
+		in       []*BuildSummaryOutput
+		status   string
+		expected []*BuildSummaryOutput
+	}{"nil input": {},
+		"status is empty": {
+			in: []*BuildSummaryOutput{{
+				BuildNum:  41,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Outcome:   "failed",
+				Status:    "failed",
+				Branch:    "feature",
+				Revision:  "006",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test"},
+			}, {
+				BuildNum:  42,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Outcome:   "success",
+				Status:    "success",
+				Branch:    "feature",
+				Revision:  "007",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test"},
+			}}},
+		"status is finished": {
+			in: []*BuildSummaryOutput{{
+				BuildNum:  41,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Outcome:   "failed",
+				Status:    "failed",
+				Branch:    "feature",
+				Revision:  "006",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test1"},
+			}, {
+				BuildNum:  42,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Outcome:   "success",
+				Status:    "success",
+				Branch:    "feature",
+				Revision:  "007",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test2"},
+			}, {
+				BuildNum:  43,
+				Username:  "org",
+				Lifecycle: "finished",
+				Reponame:  "test1",
+				Status:    "not_running",
+				Branch:    "feature",
+				Revision:  "007",
+				User:      &User{Username: "org"},
+			}},
+			status: "success",
+			expected: []*BuildSummaryOutput{{
+				BuildNum:  42,
+				Username:  "org",
+				Lifecycle: "finished",
+				Outcome:   "success",
+				Status:    "success",
+				Reponame:  "test1",
+				Branch:    "feature",
+				Revision:  "007",
+				User:      &User{Username: "org"},
+				Workflow:  &BuildWorkflow{WorkflowID: "test2"},
+			}}}}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			actual := FilterBuildSummariesByWorkflowStatus(tc.in, tc.status)
+			assert.DeepEqual(t, tc.expected, actual)
+		})
+	}
+}
+
+// nolint: funlen
+func TestProjects(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
+	tt := map[string]struct {
+		resp        string
+		err         error
+		expectedErr string
+		expected    []*Project
+		slow        bool
+	}{
+		"happy path": {
+			resp: `[{
+					"username": "org",
+					"reponame": "test1",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test1"
+				},{
+					"username": "org",
+					"reponame": "test2",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test2"
+				}]`,
+			expected: []*Project{{
+				Username: "org",
+				Reponame: "test1",
+				Vcs:      "gh",
+				VcsURL:   "https://github.com/org/test1",
+			}, {
+				Username: "org",
+				Reponame: "test2",
+				Vcs:      "gh",
+				VcsURL:   "https://github.com/org/test2",
+			}},
+		},
+		"nil": {
+			expectedErr: "failed to decode response: unexpected end of JSON input",
+			slow:        true,
+		},
+		"requester error": {
+			resp:        "[]",
+			err:         fmt.Errorf("%s", "test error"),
+			expectedErr: "test error",
+			slow:        true,
+		},
+		"empty": {
+			resp:     "[]",
+			expected: []*Project{},
+		},
+	}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					err := json.Unmarshal([]byte(tc.resp), output)
+					if err != nil {
+						return fmt.Errorf("failed to decode response: %v", err)
+					}
+					return tc.err
+				}}
+			actual, err := client.Projects(os.Stdout)
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.expectedErr)
+			}
+			assert.DeepEqual(t, tc.expected, actual)
+		})
+	}
+}
+
+// nolint: dupl
+func TestUnfollowProject(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
+	project := Project{
+		Username: "org",
+		Reponame: "test1",
+		Vcs:      "gh",
+		VcsURL:   "https://github.com/org/test1",
+	}
+	tt := []struct {
+		Name      string
+		Err       error
+		Expected  string
+		Following bool
+		slow      bool
+	}{{
+		Name:      "successfully unfollow project",
+		Following: false,
+		Err:       nil,
+		Expected:  "",
+	}, {
+		Name:      "unsuccessful unfollow project",
+		Following: true,
+		Err:       nil,
+		Expected:  fmt.Sprintf("attempted to unfollow %s, following property still true", project.VcsURL),
+	}, {
+		Name:      "error from requester function",
+		Following: true,
+		Err:       fmt.Errorf("test error"),
+		Expected:  "test error",
+		slow:      true,
+	}}
+	for _, tc := range tt {
+		tc := tc
+		t.Run(tc.Name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					output.(*followResponse).Following = tc.Following
+					return tc.Err
+				}}
+
+			err := client.UnfollowProject(&project, os.Stdout)
+			if tc.Expected == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.Expected)
+			}
+		})
+	}
+}
+
+// nolint: funlen
+func TestFindProject(t *testing.T) {
+	// Speed up testing by reducing retry interfaval and attempts
+	retrierIntervalSecs, retrierAttempts = 3, 1
+	tt := map[string]struct {
+		URL         string
+		resp        string
+		err         error
+		expectedErr string
+		expected    *Project
+		slow        bool
+	}{
+		"happy path": {
+			URL: "https://github.com/org/test2",
+			resp: `[{
+					"username": "org",
+					"reponame": "test1",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test1"
+				},{
+					"username": "org",
+					"reponame": "test2",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test2"
+				},{
+					"username": "org",
+					"reponame": "test3",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test3"
+				}]`,
+			expected: &Project{
+				Username: "org",
+				Reponame: "test2",
+				Vcs:      "gh",
+				VcsURL:   "https://github.com/org/test2",
+			},
+		},
+		"sad path": {
+			URL: "https://github.com/org/test4",
+			resp: `[{
+					"username": "org",
+					"reponame": "test1",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test1"
+				},{
+					"username": "org",
+					"reponame": "test2",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test2"
+				},{
+					"username": "org",
+					"reponame": "test3",
+					"vcs_type": "gh",
+					"vcs_url": "https://github.com/org/test3"
+				}]`,
+			expected:    nil,
+			expectedErr: "failed to locate a project using the given matcher",
+		},
+		"nil": {
+			expectedErr: "failed to decode response: unexpected end of JSON input",
+			slow:        true,
+		},
+		"requester error": {
+			resp:        "[]",
+			err:         fmt.Errorf("%s", "test error"),
+			expectedErr: "test error",
+			slow:        true,
+		},
+		"empty": {
+			resp:        "[]",
+			expected:    nil,
+			expectedErr: "failed to locate a project using the given matcher",
+		},
+	}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			if tc.slow && testing.Short() {
+				t.Skip("skipping test in short mode.")
+			}
+			client := &Client{
+				client: &http.Client{},
+				requester: func(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
+					err := json.Unmarshal([]byte(tc.resp), output)
+					if err != nil {
+						return fmt.Errorf("failed to decode response: %v", err)
+					}
+					return tc.err
+				}}
+			actual, err := client.FindProject(os.Stdout, func(p *Project) bool {
+				return p.VcsURL == tc.URL
+			})
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.Error(t, err, tc.expectedErr)
+			}
+			assert.DeepEqual(t, tc.expected, actual)
 		})
 	}
 }

@@ -31,6 +31,9 @@ func (r RequestError) Error() string {
 	return r.Message
 }
 
+// nolint: gochecknoglobals
+var retrierIntervalSecs, retrierAttempts = 30, 3
+
 //nolint:unparam
 func retrier(intervalSecs int, attempts int, fn func() error) (err error) {
 	for attempt := 0; attempt < attempts; attempt++ {
@@ -55,8 +58,8 @@ type Client struct {
 	//initialized http client, if not provided, will be empty client
 	client *http.Client
 	//circleci access key used for all requests
-	Token string
-	//requester
+	Token     string
+	baseURL   *url.URL
 	requester requestFunc
 }
 
@@ -67,12 +70,9 @@ func NewClient(client *http.Client, token string) *Client {
 		c.client = &http.Client{}
 	}
 	c.requester = request
+	// baseURL ... used internally to represent the base URL path for CircleCI API v1.1
+	c.baseURL = &url.URL{Scheme: "https", Host: "circleci.com", Path: "/api/v1.1/"}
 	return c
-}
-
-// baseURL ... used internally to represent the base URL path for CircleCI API v1.1
-func (c *Client) baseURL() *url.URL {
-	return &url.URL{Scheme: "https", Host: "circleci.com", Path: "/api/v1.1/"}
 }
 
 // request ... used internally to process requests to CircleCI
@@ -83,7 +83,7 @@ func request(c *Client, method string, path string, params url.Values, input int
 	}
 	params.Set("circle-token", c.Token)
 
-	u := c.baseURL().ResolveReference(&url.URL{Path: path, RawQuery: params.Encode()})
+	u := c.baseURL.ResolveReference(&url.URL{Path: path, RawQuery: params.Encode()})
 
 	req, err := http.NewRequest(method, u.String(), nil)
 	if err != nil {
@@ -113,7 +113,7 @@ func request(c *Client, method string, path string, params url.Values, input int
 		}
 	}()
 
-	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
+	if resp.StatusCode >= http.StatusMultipleChoices || resp.StatusCode < http.StatusOK {
 		return fmt.Errorf("non-success status code returned %s", resp.Status)
 	}
 
@@ -180,7 +180,7 @@ func (b buildProjectOutput) String() string {
 // for that build job
 func (c *Client) BuildProject(project *Project, logger io.Writer, input *BuildProjectInput, waitTimeout time.Duration) (*BuildSummaryOutput, error) {
 	var output buildProjectOutput
-	err := retrier(30, 3, func() error {
+	err := retrier(retrierIntervalSecs, retrierAttempts, func() error {
 		url := fmt.Sprintf("project/%s/%s/%s/build", project.Vcs, project.Username, project.Reponame)
 		err := c.requester(c, "POST", url, nil, input, &output)
 		if err != nil {
@@ -191,7 +191,7 @@ func (c *Client) BuildProject(project *Project, logger io.Writer, input *BuildPr
 	if err != nil {
 		return nil, err
 	}
-	if output.Status != 200 {
+	if output.Status != http.StatusOK {
 		return nil, fmt.Errorf("failed to start project build: %s", output)
 	}
 	//nolint:godox
@@ -376,6 +376,7 @@ func (c *Client) waitForNextBuild(project *Project, logger io.Writer, input *Bui
 // buildNum to complete, does not validate that the build was successful
 // jobTimeout is the duration to wait before giving up
 func (c *Client) waitForBuild(project *Project, logger io.Writer, buildNum int, jobTimeout time.Duration) (*Build, error) {
+	const sleepSec = 2
 	var (
 		count   int
 		endTime = time.Now().Add(jobTimeout)
@@ -387,7 +388,7 @@ func (c *Client) waitForBuild(project *Project, logger io.Writer, buildNum int, 
 		if count%10 == 0 {
 			logf(logger, "waiting for build %s [%d] to finish\n", project.Reponame, buildNum)
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(sleepSec * time.Second)
 		build, err := c.GetBuild(project, logger, buildNum)
 		if err != nil {
 			//should we return this error? logging for now - BLA
@@ -468,7 +469,7 @@ func (c *Client) BuildSummary(project *Project, logger io.Writer, input *BuildSu
 		}
 	}
 	var output []*BuildSummaryOutput
-	err := retrier(30, 3, func() error {
+	err := retrier(retrierIntervalSecs, retrierAttempts, func() error {
 		url := fmt.Sprintf("project/%s/%s/%s", project.Vcs, project.Username, project.Reponame)
 		err := c.requester(c, "GET", url, params, input, &output)
 		if err != nil {
@@ -574,16 +575,17 @@ type Project struct {
 // ProjectFromURL ... takes a code repository path and converts it
 // to a Project object - only tested on github paths
 func ProjectFromURL(rawurl string) (*Project, error) {
+	const minParts = 2
 	u, err := url.Parse(rawurl)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URL: %s -> %v", rawurl, err)
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) < 2 {
+	if len(parts) < minParts {
 		return nil, fmt.Errorf("path not properly formatted: %s", u)
 	}
 	vcs := strings.Split(u.Host, ".")
-	if len(vcs) < 2 {
+	if len(vcs) < minParts {
 		return nil, fmt.Errorf("host not properly formatted: %s", u)
 	}
 	return &Project{
@@ -598,7 +600,7 @@ func ProjectFromURL(rawurl string) (*Project, error) {
 // https://circleci.com/docs/api/v1-reference/#projects
 func (c *Client) Projects(logger io.Writer) ([]*Project, error) {
 	var projects []*Project
-	err := retrier(30, 3, func() error {
+	err := retrier(retrierIntervalSecs, retrierAttempts, func() error {
 		err := c.requester(c, "GET", "projects", nil, nil, &projects)
 		if err != nil {
 			logf(logger, "Projects failed, GET /projects -> %v", err)
@@ -620,7 +622,7 @@ type followResponse struct {
 // https://circleci.com/docs/api/v1-reference/#follow-project
 func (c *Client) FollowProject(project *Project, logger io.Writer) error {
 	var resp followResponse
-	err := retrier(30, 3, func() error {
+	err := retrier(retrierIntervalSecs, retrierAttempts, func() error {
 		url := fmt.Sprintf("project/%s/%s/%s/follow", project.Vcs, project.Username, project.Reponame)
 		err := c.requester(c, "POST", url, nil, nil, &resp)
 		if err != nil {
@@ -642,7 +644,7 @@ func (c *Client) FollowProject(project *Project, logger io.Writer) error {
 // https://circleci.com/docs/api/v1-reference/#follow-project
 func (c *Client) UnfollowProject(project *Project, logger io.Writer) error {
 	var resp followResponse
-	err := retrier(30, 3, func() error {
+	err := retrier(retrierIntervalSecs, retrierAttempts, func() error {
 		url := fmt.Sprintf("project/%s/%s/%s/unfollow", project.Vcs, project.Username, project.Reponame)
 		err := c.requester(c, "POST", url, nil, nil, &resp)
 		if err != nil {
@@ -688,7 +690,7 @@ func (c *Client) FindProject(logger io.Writer, matcher func(*Project) bool) (*Pr
 // https://circleci.com/docs/api/v1-reference/#user
 func (c *Client) Me(logger io.Writer) (*User, error) {
 	var me User
-	err := retrier(30, 3, func() error {
+	err := retrier(retrierIntervalSecs, retrierAttempts, func() error {
 		err := c.requester(c, "GET", "me", nil, nil, &me)
 		if err != nil {
 			logf(logger, "Me failed, GET /me -> %v", err)
@@ -741,7 +743,7 @@ type Build struct {
 // error if the request to CircleCI failed
 func (c *Client) GetBuild(project *Project, logger io.Writer, buildNum int) (*Build, error) {
 	var build Build
-	err := retrier(30, 3, func() error {
+	err := retrier(retrierIntervalSecs, retrierAttempts, func() error {
 		url := fmt.Sprintf("project/%s/%s/%s/%d", project.Vcs, project.Username, project.Reponame, buildNum)
 		err := c.requester(c, "GET", url, nil, nil, &build)
 		if err != nil {
