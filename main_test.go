@@ -11,7 +11,7 @@ import (
 )
 
 type mockClient struct {
-	circleci.CIRCLECIAPI
+	circleci.API
 	Project circleci.Project
 }
 
