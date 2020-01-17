@@ -872,9 +872,7 @@ type finalWorkflowStatusTestCase struct {
 	workflowIndex int
 }
 
-func (c *finalWorkflowStatusTestCase) BuildSummary(_ *Project, _ io.Writer,
-	input *BuildSummaryInput) ([]*BuildSummaryOutput, error) {
-
+func (c *finalWorkflowStatusTestCase) BuildSummary(_ *Project, _ io.Writer, input *BuildSummaryInput) ([]*BuildSummaryOutput, error) {
 	outputs := make([]*BuildSummaryOutput, 0, c.workflowCount*c.jobCount)
 
 	for i := 0; i < c.workflowCount; i++ {
