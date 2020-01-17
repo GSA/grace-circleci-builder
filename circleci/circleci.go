@@ -336,7 +336,7 @@ func (c *Client) WaitForProjectBuild(
 
 // finalWorkflowStatus checks all build summaries related to the provided workflowID
 // if any build has a status not equal to success will return an error
-func finalWorkflowStatus(c CIRCLECIAPI, project *Project, logger io.Writer, input *BuildProjectInput, workflowID string) error {
+func finalWorkflowStatus(c API, project *Project, logger io.Writer, input *BuildProjectInput, workflowID string) error {
 	var (
 		summaries []*BuildSummaryOutput
 		err       error
@@ -346,12 +346,12 @@ func finalWorkflowStatus(c CIRCLECIAPI, project *Project, logger io.Writer, inpu
 	err = retrier(5, 3, func() error {
 		summaries, err = c.BuildSummary(project, logger, nil)
 		if err != nil {
-			return fmt.Errorf("failed to enumerate build summaries: %v\n", err)
+			return fmt.Errorf("failed to enumerate build summaries: %v", err)
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("Attempted to get build summaries but failed: %v", err)
+		return fmt.Errorf("attempted to get build summaries but failed: %v", err)
 	}
 
 	for _, s := range summaries {
@@ -789,7 +789,7 @@ func (c *Client) GetBuild(project *Project, logger io.Writer, buildNum int) (*Bu
 }
 
 // CIRCLECIAPI provides an interface to enable mocking the CircleCI REST client
-type CIRCLECIAPI interface {
+type API interface {
 	BuildProject(*Project, io.Writer, *BuildProjectInput, time.Duration) (*BuildSummaryOutput, error)
 	WaitForProjectBuild(*Project, io.Writer, *BuildProjectInput, *BuildSummaryOutput, time.Duration, time.Duration, bool) error
 	BuildSummary(*Project, io.Writer, *BuildSummaryInput) ([]*BuildSummaryOutput, error)
@@ -802,4 +802,4 @@ type CIRCLECIAPI interface {
 	GetBuild(*Project, io.Writer, int) (*Build, error)
 }
 
-var _ CIRCLECIAPI = (*Client)(nil)
+var _ API = (*Client)(nil)

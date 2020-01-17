@@ -72,7 +72,7 @@ func main() {
 }
 
 //nolint: gocyclo
-func runBuilds(client circleci.CIRCLECIAPI, jobTimeout int, skipDays int, noSkip bool, entries []*entry) error {
+func runBuilds(client circleci.API, jobTimeout int, skipDays int, noSkip bool, entries []*entry) error {
 	// loop over circleci project entries, resolving each project
 	// and executing a full build, if anything fails, return
 	for _, entry := range entries {
@@ -125,7 +125,7 @@ func runBuilds(client circleci.CIRCLECIAPI, jobTimeout int, skipDays int, noSkip
 	return nil
 }
 
-func shouldSkip(client circleci.CIRCLECIAPI, project *circleci.Project, input *circleci.BuildProjectInput, skipDays int) (bool, error) {
+func shouldSkip(client circleci.API, project *circleci.Project, input *circleci.BuildProjectInput, skipDays int) (bool, error) {
 	// this may need to be optimized to accept an 'after' date
 	// so we can stop iterating over old/stale job data
 	rawBuilds, err := client.FindBuildSummaries(project, os.Stdout, input)

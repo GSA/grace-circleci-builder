@@ -863,7 +863,7 @@ func TestFindProject(t *testing.T) {
 }
 
 type finalWorkflowStatusTestCase struct {
-	CIRCLECIAPI
+	API
 
 	input         *BuildProjectInput
 	jobCount      int
@@ -906,14 +906,14 @@ func TestFinalWorkflowStatus(t *testing.T) {
 		Revision: "111111111111111111111111111111111111",
 	}
 	tt := map[string]*finalWorkflowStatusTestCase{
-		"failed_workflow": &finalWorkflowStatusTestCase{
+		"failed_workflow": {
 			input:         input,
 			workflowCount: 5,
 			jobCount:      9,
 			failureIndex:  6,
 			workflowIndex: 2,
 		},
-		"success_workflow": &finalWorkflowStatusTestCase{
+		"success_workflow": {
 			input:         input,
 			workflowCount: 5,
 			jobCount:      9,
@@ -922,7 +922,10 @@ func TestFinalWorkflowStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range tt {
-		tc := tc
+		var (
+			tc   = tc
+			name = name
+		)
 		t.Run(name, func(t *testing.T) {
 			workflowName := fmt.Sprintf("wf_id-%d", tc.workflowIndex)
 			err := finalWorkflowStatus(tc, nil, nil, input, workflowName)
