@@ -326,12 +326,43 @@ func (c *Client) WaitForProjectBuild(
 				// Assuming all builds are completed and the last
 				// waiter call returned no results, which is expected
 				// after the last build completes
-				return nil
+				return finalWorkflowStatus(c, project, logger, input, build.Workflow.WorkflowID)
 			}
 			return err
 		}
 		buildNum = s.BuildNum
 	}
+}
+
+// finalWorkflowStatus checks all build summaries related to the provided workflowID
+// if any build has a status not equal to success will return an error
+func finalWorkflowStatus(c CIRCLECIAPI, project *Project, logger io.Writer, input *BuildProjectInput, workflowID string) error {
+	var (
+		summaries []*BuildSummaryOutput
+		err       error
+	)
+	// retry up to 3 times, once every five seconds
+	// this should allow us to be resilient to intermittent webservice availability issues
+	err = retrier(5, 3, func() error {
+		summaries, err = c.BuildSummary(project, logger, nil)
+		if err != nil {
+			return fmt.Errorf("failed to enumerate build summaries: %v\n", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("Attempted to get build summaries but failed: %v", err)
+	}
+
+	for _, s := range summaries {
+		if input.matchSummary(s) &&
+			s.Workflow != nil &&
+			s.Workflow.WorkflowID == workflowID &&
+			s.Status != "success" {
+			return fmt.Errorf("workflow %s [%s->%s] failed with status: %s", s.Reponame, s.Workflow.WorkflowName, s.Workflow.JobName, s.Status)
+		}
+	}
+	return nil
 }
 
 // waitForNextBuild ... used internally to wait for the next build job within a given project
@@ -756,3 +787,19 @@ func (c *Client) GetBuild(project *Project, logger io.Writer, buildNum int) (*Bu
 	}
 	return &build, nil
 }
+
+// CIRCLECIAPI provides an interface to enable mocking the CircleCI REST client
+type CIRCLECIAPI interface {
+	BuildProject(*Project, io.Writer, *BuildProjectInput, time.Duration) (*BuildSummaryOutput, error)
+	WaitForProjectBuild(*Project, io.Writer, *BuildProjectInput, *BuildSummaryOutput, time.Duration, time.Duration, bool) error
+	BuildSummary(*Project, io.Writer, *BuildSummaryInput) ([]*BuildSummaryOutput, error)
+	FindBuildSummaries(*Project, io.Writer, *BuildProjectInput) ([]*BuildSummaryOutput, error)
+	Projects(io.Writer) ([]*Project, error)
+	FollowProject(*Project, io.Writer) error
+	UnfollowProject(*Project, io.Writer) error
+	FindProject(io.Writer, func(*Project) bool) (*Project, error)
+	Me(io.Writer) (*User, error)
+	GetBuild(*Project, io.Writer, int) (*Build, error)
+}
+
+var _ CIRCLECIAPI = (*Client)(nil)

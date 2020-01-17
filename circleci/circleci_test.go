@@ -3,6 +3,7 @@ package circleci
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -857,6 +858,77 @@ func TestFindProject(t *testing.T) {
 				assert.Error(t, err, tc.expectedErr)
 			}
 			assert.DeepEqual(t, tc.expected, actual)
+		})
+	}
+}
+
+type finalWorkflowStatusTestCase struct {
+	CIRCLECIAPI
+
+	input         *BuildProjectInput
+	jobCount      int
+	workflowCount int
+	failureIndex  int
+	workflowIndex int
+}
+
+func (c *finalWorkflowStatusTestCase) BuildSummary(_ *Project, _ io.Writer,
+	input *BuildSummaryInput) ([]*BuildSummaryOutput, error) {
+
+	outputs := make([]*BuildSummaryOutput, 0, c.workflowCount*c.jobCount)
+
+	for i := 0; i < c.workflowCount; i++ {
+		for j := 0; j < c.jobCount; j++ {
+			status := "success"
+			if j == c.failureIndex {
+				status = "failed"
+			}
+			output := &BuildSummaryOutput{
+				Status:   status,
+				Branch:   c.input.Branch,
+				Revision: c.input.Revision,
+				VcsTag:   c.input.Tag,
+				Workflow: &BuildWorkflow{
+					JobName:      fmt.Sprintf("job%d", j),
+					WorkflowName: fmt.Sprintf("workflow%d", i),
+					WorkflowID:   fmt.Sprintf("wf_id-%d", i),
+				},
+			}
+			outputs = append(outputs, output)
+		}
+	}
+	return outputs, nil
+}
+
+func TestFinalWorkflowStatus(t *testing.T) {
+	input := &BuildProjectInput{
+		Branch:   "master",
+		Revision: "111111111111111111111111111111111111",
+	}
+	tt := map[string]*finalWorkflowStatusTestCase{
+		"failed_workflow": &finalWorkflowStatusTestCase{
+			input:         input,
+			workflowCount: 5,
+			jobCount:      9,
+			failureIndex:  6,
+			workflowIndex: 2,
+		},
+		"success_workflow": &finalWorkflowStatusTestCase{
+			input:         input,
+			workflowCount: 5,
+			jobCount:      9,
+			failureIndex:  -1,
+			workflowIndex: 4,
+		},
+	}
+	for name, tc := range tt {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			workflowName := fmt.Sprintf("wf_id-%d", tc.workflowIndex)
+			err := finalWorkflowStatus(tc, nil, nil, input, workflowName)
+			if tc.failureIndex >= 0 && err == nil {
+				t.Errorf("%s should have failed at job index: %d for workflow name: %s", name, tc.failureIndex, workflowName)
+			}
 		})
 	}
 }
