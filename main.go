@@ -29,7 +29,7 @@ type entry struct {
 	ContinueOnFail bool `json:"continue_on_fail"`
 }
 
-func (e *entry) Build(client circleci.CIRCLECIAPI, logger io.Writer, project *circleci.Project, input *circleci.BuildProjectInput, jobTimeout int) error {
+func (e *entry) Build(client circleci.API, logger io.Writer, project *circleci.Project, input *circleci.BuildProjectInput, jobTimeout int) error {
 	summary, err := client.BuildProject(project, logger, &circleci.BuildProjectInput{
 		Branch:   e.Branch,
 		Revision: e.Commit,

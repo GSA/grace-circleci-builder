@@ -788,7 +788,7 @@ func (c *Client) GetBuild(project *Project, logger io.Writer, buildNum int) (*Bu
 	return &build, nil
 }
 
-// CIRCLECIAPI provides an interface to enable mocking the CircleCI REST client
+// API provides an interface to enable mocking the CircleCI REST client
 type API interface {
 	BuildProject(*Project, io.Writer, *BuildProjectInput, time.Duration) (*BuildSummaryOutput, error)
 	WaitForProjectBuild(*Project, io.Writer, *BuildProjectInput, *BuildSummaryOutput, time.Duration, time.Duration, bool) error
