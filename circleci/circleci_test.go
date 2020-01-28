@@ -265,52 +265,58 @@ func TestWaitForProjectBuild(t *testing.T) {
 		Err         error
 		Expected    string
 		slow        bool
-	}{"job timeout exceeded": {
-		jobTimeout:  time.Duration(1) * time.Second,
-		waitTimeout: time.Minute,
-		build: Build{
-			Lifecycle: "not finished",
+	}{
+		"job timeout exceeded": {
+			jobTimeout:  time.Duration(1) * time.Second,
+			waitTimeout: time.Minute,
+			build: Build{
+				Lifecycle: "not finished",
+			},
+			Err:      nil,
+			Expected: "job timeout exceeded while waiting for build test1 [0] to finish",
 		},
-		Err:      nil,
-		Expected: "job timeout exceeded while waiting for build test1 [0] to finish",
-	}, "job failed": {
-		jobTimeout:  time.Duration(1) * time.Minute,
-		waitTimeout: time.Minute,
-		build: Build{
-			Lifecycle: "finished",
-			Failed:    boolPtr(true),
+		"job failed": {
+			jobTimeout:  time.Duration(1) * time.Minute,
+			waitTimeout: time.Minute,
+			build: Build{
+				Lifecycle: "finished",
+				Failed:    boolPtr(true),
+			},
+			Err:      nil,
+			Expected: "build test1 [0] failed",
 		},
-		Err:      nil,
-		Expected: "build test1 [0] failed",
-	}, "could not obtain workflow details": {
-		jobTimeout:  time.Duration(1) * time.Minute,
-		waitTimeout: time.Minute,
-		build: Build{
-			Lifecycle: "finished",
-			Failed:    boolPtr(false),
+		"could not obtain workflow details": {
+			jobTimeout:  time.Duration(1) * time.Minute,
+			waitTimeout: time.Minute,
+			build: Build{
+				Lifecycle: "finished",
+				Failed:    boolPtr(false),
+			},
+			Err:      nil,
+			Expected: "could not obtain workflow details from build 0",
 		},
-		Err:      nil,
-		Expected: "could not obtain workflow details from build 0",
-	}, "job succeeded": {
-		jobTimeout:  time.Duration(30) * time.Second,
-		waitTimeout: time.Minute,
-		build: Build{
-			BuildNum:  42,
-			Lifecycle: "not finished",
-			Workflow:  &BuildWorkflow{WorkflowID: "test"},
+		"job succeeded": {
+			jobTimeout:  time.Duration(30) * time.Second,
+			waitTimeout: time.Minute,
+			build: Build{
+				BuildNum:  42,
+				Lifecycle: "not finished",
+				Workflow:  &BuildWorkflow{WorkflowID: "test"},
+			},
+			summary: `[{
+	"build_num": 42,
+	"username": "org",
+	"lifecycle": "not finished",
+	"reponame": "test1",
+	"workflows": {"workflow_id": "test"},
+	"user": {"login": "org"},
+	"status": "running"
+}]`,
+			Err:      nil,
+			Expected: "",
+			slow:     true,
 		},
-		summary: `[{
-			"build_num": 42,
-			"username": "org",
-			"lifecycle": "not finished",
-			"reponame": "test1",
-			"workflows": {"workflow_id": "test"},
-			"user": {"login": "org"}
-		}]`,
-		Err:      nil,
-		Expected: "",
-		slow:     true,
-	}}
+	}
 	for name, tc := range tt {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
@@ -344,7 +350,8 @@ func TestWaitForProjectBuild(t *testing.T) {
 							"reponame": "test1",
 							"outcome": "success",
 							"workflows": {"workflow_id": "test"},
-							"user": {"login": "org"}
+							"user": {"login": "org"},
+							"status": "success"
 						}]`
 						tc.build.Lifecycle = "finished"
 					default:
