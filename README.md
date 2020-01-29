@@ -1,4 +1,4 @@
-# GRACE CircleCI Builder [![CircleCI](https://circleci.com/gh/GSA/grace-circleci-builder.svg?style=svg)](https://circleci.com/gh/GSA/grace-circleci-builder)
+# GRACE CircleCI Builder [![GoDoc](https://godoc.org/github.com/GSA/grace-circleci-builder?status.svg)](https://godoc.org/github.com/GSA/grace-circleci-builder) [![CircleCI](https://circleci.com/gh/GSA/grace-circleci-builder.svg?style=shield)](https://circleci.com/gh/GSA/grace-circleci-builder) [![Go Report Card](https://goreportcard.com/badge/gojp/goreportcard)](https://goreportcard.com/report/github.com/GSA/grace-circleci-builder)
 
 ## Use Case
 
