@@ -39,6 +39,19 @@ func logf(logger io.Writer, format string, args ...interface{}) {
 	}
 }
 
+// isolates the request func for hooking up tests
+type requestFunc func(*Client, string, string, url.Values, interface{}, interface{}) error
+
+// RequestError contains details about the failed HTTP request
+type RequestError struct {
+	Code    int
+	Message string
+}
+
+func (r RequestError) Error() string {
+	return r.Message
+}
+
 // request ... used internally to process requests to CircleCI
 // nolint: gocyclo
 func request(c *Client, method string, path string, params url.Values, input interface{}, output interface{}) error {
@@ -90,6 +103,16 @@ func request(c *Client, method string, path string, params url.Values, input int
 	}
 
 	return nil
+}
+
+// timeoutExceededError ... used internally to signify
+// a timeout occurred while calling waiter
+type timeoutExceededError struct {
+	Message string
+}
+
+func (e *timeoutExceededError) Error() string {
+	return e.Message
 }
 
 // waiter ... calls checker func every interval until checker returns bool, nil
