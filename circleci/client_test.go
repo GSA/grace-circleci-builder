@@ -3,6 +3,7 @@ package circleci
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -264,52 +265,58 @@ func TestWaitForProjectBuild(t *testing.T) {
 		Err         error
 		Expected    string
 		slow        bool
-	}{"job timeout exceeded": {
-		jobTimeout:  time.Duration(1) * time.Second,
-		waitTimeout: time.Minute,
-		build: Build{
-			Lifecycle: "not finished",
+	}{
+		"job timeout exceeded": {
+			jobTimeout:  time.Duration(1) * time.Second,
+			waitTimeout: time.Minute,
+			build: Build{
+				Lifecycle: "not finished",
+			},
+			Err:      nil,
+			Expected: "job timeout exceeded while waiting for build test1 [0] to finish",
 		},
-		Err:      nil,
-		Expected: "job timeout exceeded while waiting for build test1 [0] to finish",
-	}, "job failed": {
-		jobTimeout:  time.Duration(1) * time.Minute,
-		waitTimeout: time.Minute,
-		build: Build{
-			Lifecycle: "finished",
-			Failed:    boolPtr(true),
+		"job failed": {
+			jobTimeout:  time.Duration(1) * time.Minute,
+			waitTimeout: time.Minute,
+			build: Build{
+				Lifecycle: "finished",
+				Failed:    boolPtr(true),
+			},
+			Err:      nil,
+			Expected: "build test1 [0] failed",
 		},
-		Err:      nil,
-		Expected: "build test1 [0] failed",
-	}, "could not obtain workflow details": {
-		jobTimeout:  time.Duration(1) * time.Minute,
-		waitTimeout: time.Minute,
-		build: Build{
-			Lifecycle: "finished",
-			Failed:    boolPtr(false),
+		"could not obtain workflow details": {
+			jobTimeout:  time.Duration(1) * time.Minute,
+			waitTimeout: time.Minute,
+			build: Build{
+				Lifecycle: "finished",
+				Failed:    boolPtr(false),
+			},
+			Err:      nil,
+			Expected: "could not obtain workflow details from build 0",
 		},
-		Err:      nil,
-		Expected: "could not obtain workflow details from build 0",
-	}, "job succeeded": {
-		jobTimeout:  time.Duration(30) * time.Second,
-		waitTimeout: time.Minute,
-		build: Build{
-			BuildNum:  42,
-			Lifecycle: "not finished",
-			Workflow:  &BuildWorkflow{WorkflowID: "test"},
+		"job succeeded": {
+			jobTimeout:  time.Duration(30) * time.Second,
+			waitTimeout: time.Minute,
+			build: Build{
+				BuildNum:  42,
+				Lifecycle: "not finished",
+				Workflow:  &BuildWorkflow{WorkflowID: "test"},
+			},
+			summary: `[{
+	"build_num": 42,
+	"username": "org",
+	"lifecycle": "not finished",
+	"reponame": "test1",
+	"workflows": {"workflow_id": "test"},
+	"user": {"login": "org"},
+	"status": "running"
+}]`,
+			Err:      nil,
+			Expected: "",
+			slow:     true,
 		},
-		summary: `[{
-			"build_num": 42,
-			"username": "org",
-			"lifecycle": "not finished",
-			"reponame": "test1",
-			"workflows": {"workflow_id": "test"},
-			"user": {"login": "org"}
-		}]`,
-		Err:      nil,
-		Expected: "",
-		slow:     true,
-	}}
+	}
 	for name, tc := range tt {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
@@ -343,7 +350,8 @@ func TestWaitForProjectBuild(t *testing.T) {
 							"reponame": "test1",
 							"outcome": "success",
 							"workflows": {"workflow_id": "test"},
-							"user": {"login": "org"}
+							"user": {"login": "org"},
+							"status": "success"
 						}]`
 						tc.build.Lifecycle = "finished"
 					default:
@@ -857,6 +865,78 @@ func TestFindProject(t *testing.T) {
 				assert.Error(t, err, tc.expectedErr)
 			}
 			assert.DeepEqual(t, tc.expected, actual)
+		})
+	}
+}
+
+type finalWorkflowStatusTestCase struct {
+	API
+
+	input         *BuildProjectInput
+	jobCount      int
+	workflowCount int
+	failureIndex  int
+	workflowIndex int
+}
+
+func (c *finalWorkflowStatusTestCase) BuildSummary(_ *Project, _ io.Writer, input *BuildSummaryInput) ([]*BuildSummaryOutput, error) {
+	outputs := make([]*BuildSummaryOutput, 0, c.workflowCount*c.jobCount)
+
+	for i := 0; i < c.workflowCount; i++ {
+		for j := 0; j < c.jobCount; j++ {
+			status := "success"
+			if j == c.failureIndex {
+				status = "failed"
+			}
+			output := &BuildSummaryOutput{
+				Status:   status,
+				Branch:   c.input.Branch,
+				Revision: c.input.Revision,
+				VcsTag:   c.input.Tag,
+				Workflow: &BuildWorkflow{
+					JobName:      fmt.Sprintf("job%d", j),
+					WorkflowName: fmt.Sprintf("workflow%d", i),
+					WorkflowID:   fmt.Sprintf("wf_id-%d", i),
+				},
+			}
+			outputs = append(outputs, output)
+		}
+	}
+	return outputs, nil
+}
+
+func TestFinalWorkflowStatus(t *testing.T) {
+	input := &BuildProjectInput{
+		Branch:   "master",
+		Revision: "111111111111111111111111111111111111",
+	}
+	tt := map[string]*finalWorkflowStatusTestCase{
+		"failed_workflow": {
+			input:         input,
+			workflowCount: 5,
+			jobCount:      9,
+			failureIndex:  6,
+			workflowIndex: 2,
+		},
+		"success_workflow": {
+			input:         input,
+			workflowCount: 5,
+			jobCount:      9,
+			failureIndex:  -1,
+			workflowIndex: 4,
+		},
+	}
+	for name, tc := range tt {
+		var (
+			tc   = tc
+			name = name
+		)
+		t.Run(name, func(t *testing.T) {
+			workflowName := fmt.Sprintf("wf_id-%d", tc.workflowIndex)
+			err := finalWorkflowStatus(tc, nil, nil, input, workflowName)
+			if tc.failureIndex >= 0 && err == nil {
+				t.Errorf("%s should have failed at job index: %d for workflow name: %s", name, tc.failureIndex, workflowName)
+			}
 		})
 	}
 }

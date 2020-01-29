@@ -8,11 +8,10 @@ import (
 	"time"
 
 	"github.com/GSA/grace-circleci-builder/circleci"
-	"github.com/GSA/grace-circleci-builder/circleci/circleciiface"
 )
 
 type mockClient struct {
-	circleciiface.CIRCLECIAPI
+	circleci.API
 	Project circleci.Project
 }
 
