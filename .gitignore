@@ -5,5 +5,3 @@ vendor/
 .DS_Store
 */.DS_Store
 Buildfile
-.idea/
-grace-circleci-builder.iml

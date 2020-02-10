@@ -7,7 +7,7 @@ precommit_path="$(git rev-parse --show-toplevel)/.git/hooks/precommit.sh"
 
 if [ ! -f "${precommit_path}" ]; then
 	curl --silent -o "${precommit_path}" "${precommit_url}"
-	if [ "$os" == "Linux" ] || [ "$os" == "Darwin" ]; then
+	if [ "$os" = "Linux" ] || [ "$os" = "Darwin" ]; then
     	chmod +x "${precommit_path}"
 	fi
 fi
