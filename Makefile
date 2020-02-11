@@ -13,7 +13,12 @@ lint: dependencies
 go.mod:
 	go mod init
 
-dependencies: $(GOLANGCILINT) go.mod
+dependencies: precommit $(GOLANGCILINT) go.mod
 
 $(GOLANGCILINT):
 	go get -u github.com/golangci/golangci-lint/cmd/golangci-lint
+
+precommit:
+ifneq ($(strip $(hooksPath)),.github/hooks)
+	@git config --add core.hooksPath .github/hooks
+endif

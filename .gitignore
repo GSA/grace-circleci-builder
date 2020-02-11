@@ -5,3 +5,7 @@ vendor/
 .DS_Store
 */.DS_Store
 Buildfile
+
+# idea (GoLand)
+/.idea
+*.iml
